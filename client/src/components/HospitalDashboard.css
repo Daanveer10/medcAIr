@@ -1,0 +1,403 @@
+.hospital-dashboard {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.hospital-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo-icon {
+  font-size: 2.5rem;
+}
+
+.logo h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #2563eb;
+  margin: 0;
+}
+
+.logo-subtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+.logout-button {
+  padding: 0.625rem 1.25rem;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.logout-button:hover {
+  background: #dc2626;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.nav-tab {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+  font-family: 'Inter', sans-serif;
+}
+
+.nav-tab:hover {
+  background: #f1f5f9;
+  color: #2563eb;
+}
+
+.nav-tab.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.hospital-main {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Slot Management Styles */
+.slot-management {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slot-management-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.slot-management-header h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.clinic-selector {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.clinic-selector label {
+  font-weight: 600;
+  color: #374151;
+}
+
+.clinic-selector select {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: 'Inter', sans-serif;
+  min-width: 250px;
+}
+
+.slot-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.date-selector {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.date-selector label {
+  font-weight: 600;
+  color: #374151;
+}
+
+.date-selector select {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: 'Inter', sans-serif;
+}
+
+.create-slot-button {
+  padding: 0.75rem 1.5rem;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.create-slot-button:hover {
+  background: #059669;
+}
+
+.create-slot-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.create-slot-form h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.875rem;
+}
+
+.form-group input {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: 'Inter', sans-serif;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.submit-button {
+  padding: 0.75rem 1.5rem;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.submit-button:hover {
+  background: #1d4ed8;
+}
+
+.slots-section {
+  margin-bottom: 2rem;
+}
+
+.slots-section h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1rem;
+}
+
+.slots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.slot-card {
+  padding: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.slot-card.free {
+  border-color: #10b981;
+  background: #d1fae5;
+}
+
+.slot-card.booked {
+  border-color: #ef4444;
+  background: #fee2e2;
+  opacity: 0.8;
+}
+
+.slot-time {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+}
+
+.slot-doctor {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+
+.slot-booked-by {
+  font-size: 0.75rem;
+  color: #991b1b;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.slot-duration {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+}
+
+.no-slots {
+  color: #64748b;
+  font-style: italic;
+  padding: 1rem;
+  text-align: center;
+}
+
+.empty-state-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 3rem;
+  text-align: center;
+  color: #64748b;
+}
+
+.loading {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+  font-size: 1.125rem;
+}
+
+@media (max-width: 768px) {
+  .slot-management-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .clinic-selector {
+    width: 100%;
+  }
+
+  .clinic-selector select {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .slot-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .date-selector {
+    width: 100%;
+  }
+
+  .date-selector select {
+    width: 100%;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .slots-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
+
+
