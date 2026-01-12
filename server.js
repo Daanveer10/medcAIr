@@ -33,20 +33,29 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    supabase: {
-      configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
-      url: process.env.SUPABASE_URL ? 'Set' : 'Not set',
-      key: process.env.SUPABASE_ANON_KEY ? 'Set' : 'Not set'
-    },
-    jwt: {
-      configured: !!process.env.JWT_SECRET
-    },
-    environment: process.env.NODE_ENV || 'development',
-    vercel: process.env.VERCEL === '1' ? 'Yes' : 'No'
-  });
+  try {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      supabase: {
+        configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+        url: process.env.SUPABASE_URL ? 'Set' : 'Not set',
+        key: process.env.SUPABASE_ANON_KEY ? 'Set' : 'Not set',
+        client: supabase ? 'Available' : 'Not available'
+      },
+      jwt: {
+        configured: !!process.env.JWT_SECRET
+      },
+      environment: process.env.NODE_ENV || 'development',
+      vercel: process.env.VERCEL === '1' ? 'Yes' : 'No'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Test endpoint to verify routing
