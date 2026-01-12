@@ -2,73 +2,45 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import axios from 'axios';
-import Login from './components/Login';
-import Signup from './components/Signup';
+// Login and Signup are disabled - commented out
+// import Login from './components/Login';
+// import Signup from './components/Signup';
 import PatientDashboard from './components/PatientDashboard';
 import HospitalDashboard from './components/HospitalDashboard';
 
 import { API_URL } from './config/api';
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Create a mock user to bypass authentication
+  const [user, setUser] = useState({
+    id: 'mock-user-id',
+    email: 'demo@medcair.com',
+    name: 'Demo User',
+    role: 'patient', // Change to 'hospital' if you want hospital dashboard
+    phone: '1234567890'
+  });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Check if user is logged in
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-
-    if (token && savedUser) {
-      try {
-        // Verify token by making a request
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        axios.get(`${API_URL}/auth/me`)
-          .then(response => {
-            setUser(response.data);
-          })
-          .catch(() => {
-            // Token invalid, clear storage
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            delete axios.defaults.headers.common['Authorization'];
-          })
-          .finally(() => {
-            setLoading(false);
-          });
-      } catch (error) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        delete axios.defaults.headers.common['Authorization'];
-        setLoading(false);
-      }
-    } else {
-      setLoading(false);
-    }
+    // Skip authentication check - set loading to false immediately
+    setLoading(false);
   }, []);
 
-  const handleLogin = (userData) => {
-    setUser(userData);
-  };
-
-  const handleSignup = (userData) => {
-    setUser(userData);
-  };
-
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
+    // Since we're bypassing auth, logout just refreshes
+    window.location.reload();
   };
 
-  // Protected Route Component
+  // Protected Route Component - now allows access without authentication
   const ProtectedRoute = ({ children, requiredRole }) => {
     if (loading) {
       return <div className="loading-screen">Loading...</div>;
     }
 
+    // Allow access even without user (for now)
     if (!user) {
-      return <Navigate to="/login" replace />;
+      // Redirect to patient dashboard as default
+      return <Navigate to="/patient" replace />;
     }
 
     if (requiredRole && user.role !== requiredRole) {
@@ -78,20 +50,20 @@ function App() {
       } else if (user.role === 'hospital') {
         return <Navigate to="/hospital" replace />;
       }
-      return <Navigate to="/login" replace />;
+      return <Navigate to="/patient" replace />;
     }
 
     return children;
   };
 
-  // Redirect based on role
+  // Redirect based on role - now defaults to patient dashboard
   const RoleRedirect = () => {
     if (loading) {
       return <div className="loading-screen">Loading...</div>;
     }
 
     if (!user) {
-      return <Navigate to="/login" replace />;
+      return <Navigate to="/patient" replace />;
     }
 
     if (user.role === 'patient') {
@@ -100,7 +72,8 @@ function App() {
       return <Navigate to="/hospital" replace />;
     }
 
-    return <Navigate to="/login" replace />;
+    // Default to patient dashboard
+    return <Navigate to="/patient" replace />;
   };
 
   if (loading) {
@@ -116,7 +89,8 @@ function App() {
     <Router>
       <div className="App">
         <Routes>
-          {/* Public routes */}
+          {/* Login and Signup routes are disabled */}
+          {/* 
           <Route
             path="/login"
             element={
@@ -137,8 +111,9 @@ function App() {
               )
             }
           />
+          */}
 
-          {/* Protected routes */}
+          {/* Dashboard routes - now accessible without authentication */}
           <Route
             path="/patient"
             element={
@@ -156,9 +131,9 @@ function App() {
             }
           />
 
-          {/* Default redirect */}
-          <Route path="/" element={<RoleRedirect />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Default redirect - goes directly to patient dashboard */}
+          <Route path="/" element={<Navigate to="/patient" replace />} />
+          <Route path="*" element={<Navigate to="/patient" replace />} />
         </Routes>
       </div>
     </Router>
