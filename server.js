@@ -36,6 +36,12 @@ const authenticateToken = (req, res, next) => {
 
 // Initialize sample data (run once)
 async function initializeSampleData() {
+  // Skip if Supabase is not configured
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    console.log('Skipping sample data initialization - Supabase not configured');
+    return;
+  }
+
   try {
     // Check if clinics exist
     const { data: clinics, error: clinicsError } = await supabase
