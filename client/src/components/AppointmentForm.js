@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import './AppointmentForm.css';
 import axios from 'axios';
 import { format } from 'date-fns';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { API_URL } from '../config/api';
 
 const AppointmentForm = ({ onAppointmentCreated }) => {
   const [formData, setFormData] = useState({

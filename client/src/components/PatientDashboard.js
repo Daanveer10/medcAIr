@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import './PatientDashboard.css';
 import axios from 'axios';
 import { format, parseISO } from 'date-fns';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { API_URL } from '../config/api';
 
 const PatientDashboard = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('search');

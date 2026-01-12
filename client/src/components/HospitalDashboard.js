@@ -6,8 +6,7 @@ import Dashboard from './Dashboard';
 import AppointmentForm from './AppointmentForm';
 import AppointmentsList from './AppointmentsList';
 import FollowUpsList from './FollowUpsList';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { API_URL } from '../config/api';
 
 const HospitalDashboard = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('dashboard');

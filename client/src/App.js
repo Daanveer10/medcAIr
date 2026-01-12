@@ -7,7 +7,7 @@ import Signup from './components/Signup';
 import PatientDashboard from './components/PatientDashboard';
 import HospitalDashboard from './components/HospitalDashboard';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { API_URL } from './config/api';
 
 function App() {
   const [user, setUser] = useState(null);
