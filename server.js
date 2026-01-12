@@ -225,8 +225,11 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
+    console.log('Hashing password...');
     const hashedPassword = await bcrypt.hash(password, 10);
     console.log('Password hashed, inserting into Supabase...');
+    console.log('Supabase client:', supabase ? 'Available' : 'NULL');
+    console.log('Insert data:', { email, name, role, phone: phone || null, password: '***' });
 
     const { data, error } = await supabase
       .from('users')
@@ -239,6 +242,9 @@ app.post('/api/auth/register', async (req, res) => {
       })
       .select()
       .single();
+    
+    console.log('Supabase response - data:', data ? 'Received' : 'NULL');
+    console.log('Supabase response - error:', error ? JSON.stringify(error, null, 2) : 'None');
 
     if (error) {
       console.error('Supabase error during registration:', error);

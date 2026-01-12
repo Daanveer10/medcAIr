@@ -78,7 +78,7 @@ This guide will help you set up Supabase as the database for medcAIr.
 4. Select environments: **Production**, **Preview**, **Development**
 5. Click "Save"
 
-## Step 7: Test the Connection
+## Step 8: Test the Connection
 
 1. Start your local server:
    ```bash
