@@ -287,10 +287,6 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('=== REGISTRATION SUCCESS ===');
-    console.log('User ID:', data.id);
-    console.log('User email:', data.email);
-    
     res.json({
       token,
       user: { id: data.id, email: data.email, name: data.name, role: data.role, phone: data.phone }
