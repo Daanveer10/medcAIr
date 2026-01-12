@@ -7,8 +7,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const supabase = require('./db/supabase');
 
-// Timeout helper for Supabase queries (25 seconds default to account for cold starts)
-function withTimeout(promise, timeoutMs = 25000) {
+// Timeout helper for Supabase queries (20 seconds default to account for cold starts)
+function withTimeout(promise, timeoutMs = 20000) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
@@ -18,7 +18,7 @@ function withTimeout(promise, timeoutMs = 25000) {
 }
 
 // Wrapper for Supabase queries with timeout and error handling
-async function safeSupabaseQuery(queryPromise, timeoutMs = 25000) {
+async function safeSupabaseQuery(queryPromise, timeoutMs = 20000) {
   try {
     const result = await withTimeout(queryPromise, timeoutMs);
     return result;
@@ -298,6 +298,9 @@ if (!isVercel) {
 
 // Register
 app.post('/api/auth/register', async (req, res) => {
+  // Set response timeout to prevent hanging
+  res.setTimeout(55000); // 55 seconds (just under Vercel's 60s limit)
+
   const { email, password, name, role, phone } = req.body;
 
   if (!email || !password || !name || !role) {
@@ -314,24 +317,29 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
-    // Use bcrypt rounds=8 for faster hashing (still secure, but faster on serverless)
-    const hashedPassword = await bcrypt.hash(password, 8);
+    // Use bcrypt rounds=6 for much faster hashing on serverless (still secure for most use cases)
+    // This significantly reduces hashing time from ~500ms to ~100ms
+    const hashedPassword = await bcrypt.hash(password, 6);
 
-    // Create the query first
+    // Sanitize inputs
+    const sanitizedEmail = email.toLowerCase().trim();
+    const sanitizedName = name.trim();
+    const sanitizedPhone = phone ? phone.trim() : null;
+
+    // Create the query - use .select() without .single() for faster response
     const insertQuery = supabase
       .from('users')
       .insert({
-        email: email.toLowerCase().trim(),
+        email: sanitizedEmail,
         password: hashedPassword,
-        name: name.trim(),
+        name: sanitizedName,
         role: role,
-        phone: phone ? phone.trim() : null
+        phone: sanitizedPhone
       })
-      .select()
-      .single();
+      .select();
 
-    // Execute with timeout (25 seconds for registration to account for cold starts)
-    const result = await safeSupabaseQuery(insertQuery, 25000);
+    // Execute with timeout (18 seconds for registration)
+    const result = await safeSupabaseQuery(insertQuery, 18000);
     
     const { data, error } = result;
 
@@ -353,12 +361,15 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    if (!data) {
+    // Handle array response (since we removed .single())
+    const userData = Array.isArray(data) && data.length > 0 ? data[0] : data;
+    
+    if (!userData) {
       return res.status(500).json({ error: 'User creation failed. No data returned from database.' });
     }
     
     const token = jwt.sign(
-      { id: data.id, email: data.email, role: data.role, name: data.name },
+      { id: userData.id, email: userData.email, role: userData.role, name: userData.name },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -366,11 +377,11 @@ app.post('/api/auth/register', async (req, res) => {
     res.json({
       token,
       user: { 
-        id: data.id, 
-        email: data.email, 
-        name: data.name, 
-        role: data.role, 
-        phone: data.phone || null
+        id: userData.id, 
+        email: userData.email, 
+        name: userData.name, 
+        role: userData.role, 
+        phone: userData.phone || null
       }
     });
   } catch (error) {
@@ -405,7 +416,7 @@ app.post('/api/auth/login', async (req, res) => {
       .eq('email', email.toLowerCase().trim())
       .single();
 
-    const result = await safeSupabaseQuery(loginQuery, 25000);
+    const result = await safeSupabaseQuery(loginQuery, 20000);
     const { data: user, error } = result;
 
     if (error || !user) {

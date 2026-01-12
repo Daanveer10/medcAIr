@@ -106,7 +106,7 @@ const Signup = ({ onSignup }) => {
       };
       
       const response = await axios.post(`${API_URL}/auth/register`, signupData, {
-        timeout: 30000,
+        timeout: 60000, // 60 seconds to match Vercel maxDuration
         headers: {
           'Content-Type': 'application/json'
         }

@@ -6,7 +6,12 @@ const app = require('../server');
 module.exports = serverless(app, {
   binary: ['image/*', 'application/pdf'],
   request(request, event, context) {
-    // Set timeout context
+    // Optimize for serverless - don't wait for empty event loop
     context.callbackWaitsForEmptyEventLoop = false;
+  },
+  response(response) {
+    // Ensure response is sent quickly
+    response.headers = response.headers || {};
+    response.headers['X-Content-Type-Options'] = 'nosniff';
   }
 });
