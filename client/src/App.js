@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
-import axios from 'axios';
 // Login and Signup are disabled - commented out
 // import Login from './components/Login';
 // import Signup from './components/Signup';
 import PatientDashboard from './components/PatientDashboard';
 import HospitalDashboard from './components/HospitalDashboard';
 
-import { API_URL } from './config/api';
-
 function App() {
   // Create a mock user to bypass authentication
-  const [user, setUser] = useState({
+  const [user] = useState({
     id: 'mock-user-id',
     email: 'demo@medcair.com',
     name: 'Demo User',
@@ -56,25 +53,6 @@ function App() {
     return children;
   };
 
-  // Redirect based on role - now defaults to patient dashboard
-  const RoleRedirect = () => {
-    if (loading) {
-      return <div className="loading-screen">Loading...</div>;
-    }
-
-    if (!user) {
-      return <Navigate to="/patient" replace />;
-    }
-
-    if (user.role === 'patient') {
-      return <Navigate to="/patient" replace />;
-    } else if (user.role === 'hospital') {
-      return <Navigate to="/hospital" replace />;
-    }
-
-    // Default to patient dashboard
-    return <Navigate to="/patient" replace />;
-  };
 
   if (loading) {
     return (
