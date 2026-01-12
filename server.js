@@ -338,8 +338,8 @@ app.post('/api/auth/register', async (req, res) => {
       })
       .select();
 
-    // Execute with timeout (18 seconds for registration)
-    const result = await safeSupabaseQuery(insertQuery, 18000);
+    // Execute with timeout (8 seconds for registration)
+    const result = await safeSupabaseQuery(insertQuery, 8000);
     
     const { data, error } = result;
 
