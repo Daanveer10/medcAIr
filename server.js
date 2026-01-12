@@ -1,11 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const { format, parseISO, addDays, isAfter, isBefore } = require('date-fns');
+const { format, parseISO, addDays } = require('date-fns');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const supabase = require('./db/supabase');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,7 +16,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'client/build')));
 
-// Simple authentication middleware
+// Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -34,182 +34,141 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Initialize database
-const db = new sqlite3.Database('./appointments.db', (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    console.log('Connected to SQLite database');
-    
-    // Create tables
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('patient', 'hospital')),
-      phone TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+// Initialize sample data (run once)
+async function initializeSampleData() {
+  try {
+    // Check if clinics exist
+    const { data: clinics, error: clinicsError } = await supabase
+      .from('clinics')
+      .select('id')
+      .limit(1);
 
-    db.run(`CREATE TABLE IF NOT EXISTS clinics (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hospital_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      address TEXT NOT NULL,
-      city TEXT NOT NULL,
-      state TEXT NOT NULL,
-      zip_code TEXT,
-      latitude REAL,
-      longitude REAL,
-      phone TEXT,
-      email TEXT,
-      specialties TEXT,
-      diseases_handled TEXT,
-      operating_hours TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (hospital_id) REFERENCES users(id)
-    )`);
+    if (clinicsError || clinics.length === 0) {
+      // Create sample hospital user
+      const hashedPassword = await bcrypt.hash('hospital123', 10);
+      
+      const { data: hospitalUser, error: userError } = await supabase
+        .from('users')
+        .insert({
+          email: 'hospital@medcair.com',
+          password: hashedPassword,
+          name: 'City General Hospital',
+          role: 'hospital',
+          phone: '555-0100'
+        })
+        .select()
+        .single();
 
-    db.run(`CREATE TABLE IF NOT EXISTS appointments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      patient_id INTEGER,
-      clinic_id INTEGER,
-      patient_name TEXT NOT NULL,
-      patient_phone TEXT NOT NULL,
-      patient_email TEXT,
-      appointment_date TEXT NOT NULL,
-      appointment_time TEXT NOT NULL,
-      slot_id INTEGER,
-      reason TEXT,
-      disease TEXT,
-      doctor_name TEXT,
-      status TEXT DEFAULT 'scheduled',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (patient_id) REFERENCES users(id),
-      FOREIGN KEY (clinic_id) REFERENCES clinics(id)
-    )`);
+      if (userError && !userError.message.includes('duplicate')) {
+        console.error('Error creating hospital user:', userError);
+        return;
+      }
 
-    db.run(`CREATE TABLE IF NOT EXISTS followups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      appointment_id INTEGER,
-      patient_name TEXT NOT NULL,
-      patient_phone TEXT NOT NULL,
-      followup_date TEXT NOT NULL,
-      followup_time TEXT NOT NULL,
-      reason TEXT,
-      doctor_name TEXT,
-      status TEXT DEFAULT 'scheduled',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (appointment_id) REFERENCES appointments(id)
-    )`);
+      const hospitalId = hospitalUser?.id || (await supabase.from('users').select('id').eq('email', 'hospital@medcair.com').single()).data?.id;
 
-    db.run(`CREATE TABLE IF NOT EXISTS slots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      clinic_id INTEGER NOT NULL,
-      date TEXT NOT NULL,
-      time TEXT NOT NULL,
-      doctor_name TEXT,
-      is_available INTEGER DEFAULT 1,
-      duration INTEGER DEFAULT 30,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (clinic_id) REFERENCES clinics(id),
-      UNIQUE(clinic_id, date, time, doctor_name)
-    )`);
+      if (!hospitalId) return;
 
-    // Create sample clinics for testing
-    db.get('SELECT COUNT(*) as count FROM clinics', (err, row) => {
-      if (!err && row.count === 0) {
-        // Insert sample hospital user
-        bcrypt.hash('hospital123', 10, (err, hash) => {
-          db.run(`INSERT INTO users (email, password, name, role, phone) VALUES (?, ?, ?, ?, ?)`,
-            ['hospital@medcair.com', hash, 'City General Hospital', 'hospital', '555-0100'],
-            function() {
-              const hospitalId = this.lastID;
-              
-              // Insert sample clinics
-              const sampleClinics = [
-                {
-                  hospital_id: hospitalId,
-                  name: 'City General Hospital - Main Branch',
-                  address: '123 Medical Plaza',
-                  city: 'New York',
-                  state: 'NY',
-                  zip_code: '10001',
-                  latitude: 40.7128,
-                  longitude: -74.0060,
-                  phone: '555-0101',
-                  email: 'main@cityhospital.com',
-                  specialties: 'General Medicine, Cardiology, Pediatrics',
-                  diseases_handled: 'Diabetes, Hypertension, Heart Disease, Asthma, Flu, COVID-19',
-                  operating_hours: 'Mon-Fri: 9AM-5PM, Sat: 9AM-1PM'
-                },
-                {
-                  hospital_id: hospitalId,
-                  name: 'City General Hospital - Downtown Clinic',
-                  address: '456 Health Avenue',
-                  city: 'New York',
-                  state: 'NY',
-                  zip_code: '10002',
-                  latitude: 40.7589,
-                  longitude: -73.9851,
-                  phone: '555-0102',
-                  email: 'downtown@cityhospital.com',
-                  specialties: 'Orthopedics, Dermatology, ENT',
-                  diseases_handled: 'Arthritis, Skin Disorders, Sinusitis, Migraine, Allergies',
-                  operating_hours: 'Mon-Fri: 8AM-6PM'
-                },
-                {
-                  hospital_id: hospitalId,
-                  name: 'City General Hospital - Emergency Care',
-                  address: '789 Emergency Way',
-                  city: 'New York',
-                  state: 'NY',
-                  zip_code: '10003',
-                  latitude: 40.7282,
-                  longitude: -73.9942,
-                  phone: '555-0103',
-                  email: 'emergency@cityhospital.com',
-                  specialties: 'Emergency Medicine, Trauma Care',
-                  diseases_handled: 'Emergency Cases, Trauma, Acute Illness, Injuries',
-                  operating_hours: '24/7'
-                }
-              ];
+      // Create sample clinics
+      const sampleClinics = [
+        {
+          hospital_id: hospitalId,
+          name: 'City General Hospital - Main Branch',
+          address: '123 Medical Plaza',
+          city: 'New York',
+          state: 'NY',
+          zip_code: '10001',
+          latitude: 40.7128,
+          longitude: -74.0060,
+          phone: '555-0101',
+          email: 'main@cityhospital.com',
+          specialties: 'General Medicine, Cardiology, Pediatrics',
+          diseases_handled: 'Diabetes, Hypertension, Heart Disease, Asthma, Flu, COVID-19',
+          operating_hours: 'Mon-Fri: 9AM-5PM, Sat: 9AM-1PM'
+        },
+        {
+          hospital_id: hospitalId,
+          name: 'City General Hospital - Downtown Clinic',
+          address: '456 Health Avenue',
+          city: 'New York',
+          state: 'NY',
+          zip_code: '10002',
+          latitude: 40.7589,
+          longitude: -73.9851,
+          phone: '555-0102',
+          email: 'downtown@cityhospital.com',
+          specialties: 'Orthopedics, Dermatology, ENT',
+          diseases_handled: 'Arthritis, Skin Disorders, Sinusitis, Migraine, Allergies',
+          operating_hours: 'Mon-Fri: 8AM-6PM'
+        },
+        {
+          hospital_id: hospitalId,
+          name: 'City General Hospital - Emergency Care',
+          address: '789 Emergency Way',
+          city: 'New York',
+          state: 'NY',
+          zip_code: '10003',
+          latitude: 40.7282,
+          longitude: -73.9942,
+          phone: '555-0103',
+          email: 'emergency@cityhospital.com',
+          specialties: 'Emergency Medicine, Trauma Care',
+          diseases_handled: 'Emergency Cases, Trauma, Acute Illness, Injuries',
+          operating_hours: '24/7'
+        }
+      ];
 
-              sampleClinics.forEach(clinic => {
-                db.run(`INSERT INTO clinics (hospital_id, name, address, city, state, zip_code, latitude, longitude, phone, email, specialties, diseases_handled, operating_hours) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [clinic.hospital_id, clinic.name, clinic.address, clinic.city, clinic.state, clinic.zip_code,
-                   clinic.latitude, clinic.longitude, clinic.phone, clinic.email, clinic.specialties,
-                   clinic.diseases_handled, clinic.operating_hours],
-                  function() {
-                    const clinicId = this.lastID;
-                    // Create sample slots for this clinic
-                    const times = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
-                    const doctors = ['Dr. Smith', 'Dr. Johnson', 'Dr. Williams'];
-                    const today = new Date();
-                    
-                    for (let day = 0; day < 7; day++) {
-                      const slotDate = addDays(today, day);
-                      const dateStr = format(slotDate, 'yyyy-MM-dd');
-                      
-                      doctors.forEach(doctor => {
-                        times.forEach(time => {
-                          db.run(`INSERT OR IGNORE INTO slots (clinic_id, date, time, doctor_name, is_available) VALUES (?, ?, ?, ?, ?)`,
-                            [clinicId, dateStr, time, doctor, 1]);
-                        });
-                      });
-                    }
-                  });
+      const { data: createdClinics, error: clinicsInsertError } = await supabase
+        .from('clinics')
+        .insert(sampleClinics)
+        .select();
+
+      if (clinicsInsertError) {
+        console.error('Error creating clinics:', clinicsInsertError);
+        return;
+      }
+
+      // Create sample slots
+      const times = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
+      const doctors = ['Dr. Smith', 'Dr. Johnson', 'Dr. Williams'];
+      const today = new Date();
+      const slots = [];
+
+      createdClinics.forEach(clinic => {
+        for (let day = 0; day < 7; day++) {
+          const slotDate = addDays(today, day);
+          const dateStr = format(slotDate, 'yyyy-MM-dd');
+          
+          doctors.forEach(doctor => {
+            times.forEach(time => {
+              slots.push({
+                clinic_id: clinic.id,
+                date: dateStr,
+                time: time,
+                doctor_name: doctor,
+                is_available: true
               });
             });
-        });
-      }
-    });
-  }
-});
+          });
+        }
+      });
 
-// Authentication Routes
+      if (slots.length > 0) {
+        await supabase.from('slots').insert(slots);
+      }
+
+      console.log('Sample data initialized successfully');
+    }
+  } catch (error) {
+    console.error('Error initializing sample data:', error);
+  }
+}
+
+// Initialize on startup (only in non-Vercel mode)
+if (process.env.VERCEL !== '1') {
+  initializeSampleData();
+}
+
+// ==================== AUTHENTICATION ROUTES ====================
 
 // Register
 app.post('/api/auth/register', async (req, res) => {
@@ -226,211 +185,276 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    db.run(
-      'INSERT INTO users (email, password, name, role, phone) VALUES (?, ?, ?, ?, ?)',
-      [email, hashedPassword, name, role, phone || null],
-      function(err) {
-        if (err) {
-          if (err.message.includes('UNIQUE constraint')) {
-            return res.status(400).json({ error: 'Email already registered' });
-          }
-          return res.status(500).json({ error: err.message });
-        }
+    const { data, error } = await supabase
+      .from('users')
+      .insert({
+        email,
+        password: hashedPassword,
+        name,
+        role,
+        phone: phone || null
+      })
+      .select()
+      .single();
 
-        const token = jwt.sign(
-          { id: this.lastID, email, role, name },
-          JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-
-        res.json({
-          token,
-          user: { id: this.lastID, email, name, role, phone }
-        });
+    if (error) {
+      if (error.code === '23505') { // Unique constraint violation
+        return res.status(400).json({ error: 'Email already registered' });
       }
+      return res.status(500).json({ error: error.message });
+    }
+
+    const token = jwt.sign(
+      { id: data.id, email: data.email, role: data.role, name: data.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
     );
+
+    res.json({
+      token,
+      user: { id: data.id, email: data.email, name: data.name, role: data.role, phone: data.phone }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Error creating user' });
   }
 });
 
 // Login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    try {
-      const validPassword = await bcrypt.compare(password, user.password);
-      if (!validPassword) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      const token = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, name: user.name },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.json({
-        token,
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          phone: user.phone
-        }
-      });
-    } catch (error) {
-      res.status(500).json({ error: 'Error during login' });
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
-  });
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        phone: user.phone
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error during login' });
+  }
 });
 
 // Get current user
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  db.get('SELECT id, email, name, role, phone FROM users WHERE id = ?', [req.user.id], (err, user) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (!user) {
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, name, role, phone')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error || !user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
     res.json(user);
-  });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Clinic Routes
+// ==================== CLINIC ROUTES ====================
 
 // Get all clinics (for patients)
-app.get('/api/clinics', (req, res) => {
-  const { disease, city, search } = req.query;
-  let query = 'SELECT c.*, u.name as hospital_name FROM clinics c JOIN users u ON c.hospital_id = u.id WHERE 1=1';
-  const params = [];
+app.get('/api/clinics', async (req, res) => {
+  try {
+    const { disease, city, search } = req.query;
+    let query = supabase
+      .from('clinics')
+      .select(`
+        *,
+        users!inner(name)
+      `);
 
-  if (disease) {
-    query += ' AND c.diseases_handled LIKE ?';
-    params.push(`%${disease}%`);
-  }
-
-  if (city) {
-    query += ' AND c.city = ?';
-    params.push(city);
-  }
-
-  if (search) {
-    query += ' AND (c.name LIKE ? OR c.address LIKE ? OR c.specialties LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-  }
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (disease) {
+      query = query.ilike('diseases_handled', `%${disease}%`);
     }
-    res.json(rows);
-  });
+
+    if (city) {
+      query = query.eq('city', city);
+    }
+
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,address.ilike.%${search}%,specialties.ilike.%${search}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    // Map to include hospital_name
+    const clinics = data.map(clinic => ({
+      ...clinic,
+      hospital_name: clinic.users?.name
+    }));
+
+    res.json(clinics);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get clinic by ID
-app.get('/api/clinics/:id', (req, res) => {
-  const { id } = req.params;
-  db.get('SELECT c.*, u.name as hospital_name FROM clinics c JOIN users u ON c.hospital_id = u.id WHERE c.id = ?',
-    [id], (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (!row) {
-        return res.status(404).json({ error: 'Clinic not found' });
-      }
-      res.json(row);
+app.get('/api/clinics/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from('clinics')
+      .select(`
+        *,
+        users!inner(name)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ error: 'Clinic not found' });
+    }
+
+    res.json({
+      ...data,
+      hospital_name: data.users?.name
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get slots for a clinic
-app.get('/api/clinics/:id/slots', (req, res) => {
-  const { id } = req.params;
-  const { date } = req.query;
-  
-  let query = `
-    SELECT s.*, 
-           CASE WHEN a.id IS NOT NULL THEN 0 ELSE 1 END as is_available,
-           a.id as appointment_id,
-           a.patient_name as booked_by
-    FROM slots s
-    LEFT JOIN appointments a ON s.id = a.slot_id AND s.date = a.appointment_date AND s.time = a.appointment_time AND a.status = 'scheduled'
-    WHERE s.clinic_id = ?
-  `;
-  const params = [id];
+app.get('/api/clinics/:id/slots', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query;
+    
+    let query = supabase
+      .from('slots')
+      .select('*')
+      .eq('clinic_id', id);
 
-  if (date) {
-    query += ' AND s.date = ?';
-    params.push(date);
-  } else {
-    // Default to next 7 days
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const nextWeek = format(addDays(new Date(), 7), 'yyyy-MM-dd');
-    query += ' AND s.date >= ? AND s.date <= ?';
-    params.push(today, nextWeek);
-  }
-
-  query += ' ORDER BY s.date, s.time';
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (date) {
+      query = query.eq('date', date);
+    } else {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const nextWeek = format(addDays(new Date(), 7), 'yyyy-MM-dd');
+      query = query.gte('date', today).lte('date', nextWeek);
     }
-    res.json(rows);
-  });
+
+    query = query.order('date', { ascending: true }).order('time', { ascending: true });
+
+    const { data: slots, error: slotsError } = await query;
+
+    if (slotsError) {
+      return res.status(500).json({ error: slotsError.message });
+    }
+
+    // Check which slots are booked
+    const slotIds = slots.map(s => s.id);
+    const { data: appointments } = await supabase
+      .from('appointments')
+      .select('slot_id, patient_name')
+      .in('slot_id', slotIds)
+      .eq('status', 'scheduled');
+
+    const bookedSlotIds = new Set(appointments?.map(a => a.slot_id) || []);
+    const bookedByMap = {};
+    appointments?.forEach(a => {
+      if (a.slot_id) bookedByMap[a.slot_id] = a.patient_name;
+    });
+
+    const slotsWithAvailability = slots.map(slot => ({
+      ...slot,
+      is_available: slot.is_available && !bookedSlotIds.has(slot.id),
+      booked_by: bookedByMap[slot.id] || null
+    }));
+
+    res.json(slotsWithAvailability);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get clinic slots grouped by date
-app.get('/api/clinics/:id/slots/grouped', (req, res) => {
-  const { id } = req.params;
-  const { date } = req.query;
-  
-  let query = `
-    SELECT s.*, 
-           CASE WHEN a.id IS NOT NULL THEN 0 ELSE 1 END as is_available,
-           a.id as appointment_id,
-           a.patient_name as booked_by
-    FROM slots s
-    LEFT JOIN appointments a ON s.id = a.slot_id AND s.date = a.appointment_date AND s.time = a.appointment_time AND a.status = 'scheduled'
-    WHERE s.clinic_id = ?
-  `;
-  const params = [id];
-
-  if (date) {
-    query += ' AND s.date = ?';
-    params.push(date);
-  } else {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const nextWeek = format(addDays(new Date(), 7), 'yyyy-MM-dd');
-    query += ' AND s.date >= ? AND s.date <= ?';
-    params.push(today, nextWeek);
-  }
-
-  query += ' ORDER BY s.date, s.time';
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+app.get('/api/clinics/:id/slots/grouped', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query;
     
+    let query = supabase
+      .from('slots')
+      .select('*')
+      .eq('clinic_id', id);
+
+    if (date) {
+      query = query.eq('date', date);
+    } else {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const nextWeek = format(addDays(new Date(), 7), 'yyyy-MM-dd');
+      query = query.gte('date', today).lte('date', nextWeek);
+    }
+
+    query = query.order('date', { ascending: true }).order('time', { ascending: true });
+
+    const { data: slots, error: slotsError } = await query;
+
+    if (slotsError) {
+      return res.status(500).json({ error: slotsError.message });
+    }
+
+    // Check which slots are booked
+    const slotIds = slots.map(s => s.id);
+    const { data: appointments } = await supabase
+      .from('appointments')
+      .select('slot_id, patient_name')
+      .in('slot_id', slotIds)
+      .eq('status', 'scheduled');
+
+    const bookedSlotIds = new Set(appointments?.map(a => a.slot_id) || []);
+    const bookedByMap = {};
+    appointments?.forEach(a => {
+      if (a.slot_id) bookedByMap[a.slot_id] = a.patient_name;
+    });
+
+    const slotsWithAvailability = slots.map(slot => ({
+      ...slot,
+      is_available: slot.is_available && !bookedSlotIds.has(slot.id),
+      booked_by: bookedByMap[slot.id] || null
+    }));
+
     // Group by date
     const grouped = {};
-    rows.forEach(slot => {
+    slotsWithAvailability.forEach(slot => {
       if (!grouped[slot.date]) {
         grouped[slot.date] = [];
       }
@@ -438,11 +462,13 @@ app.get('/api/clinics/:id/slots/grouped', (req, res) => {
     });
 
     res.json(grouped);
-  });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Create clinic (hospital only)
-app.post('/api/clinics', authenticateToken, (req, res) => {
+app.post('/api/clinics', authenticateToken, async (req, res) => {
   if (req.user.role !== 'hospital') {
     return res.status(403).json({ error: 'Only hospitals can create clinics' });
   }
@@ -453,20 +479,39 @@ app.post('/api/clinics', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  db.run(
-    'INSERT INTO clinics (hospital_id, name, address, city, state, zip_code, latitude, longitude, phone, email, specialties, diseases_handled, operating_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [req.user.id, name, address, city, state, zip_code || null, latitude || null, longitude || null, phone || null, email || null, specialties || '', diseases_handled || '', operating_hours || ''],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({ id: this.lastID, message: 'Clinic created successfully' });
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .insert({
+        hospital_id: req.user.id,
+        name,
+        address,
+        city,
+        state,
+        zip_code: zip_code || null,
+        latitude: latitude || null,
+        longitude: longitude || null,
+        phone: phone || null,
+        email: email || null,
+        specialties: specialties || '',
+        diseases_handled: diseases_handled || '',
+        operating_hours: operating_hours || ''
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
     }
-  );
+
+    res.json({ id: data.id, message: 'Clinic created successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Create slots for clinic (hospital only)
-app.post('/api/clinics/:id/slots', authenticateToken, (req, res) => {
+app.post('/api/clinics/:id/slots', authenticateToken, async (req, res) => {
   if (req.user.role !== 'hospital') {
     return res.status(403).json({ error: 'Only hospitals can create slots' });
   }
@@ -475,45 +520,69 @@ app.post('/api/clinics/:id/slots', authenticateToken, (req, res) => {
   const { date, time, doctor_name, duration } = req.body;
 
   // Verify clinic belongs to hospital
-  db.get('SELECT hospital_id FROM clinics WHERE id = ?', [id], (err, clinic) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (!clinic || clinic.hospital_id !== req.user.id) {
-      return res.status(403).json({ error: 'Clinic not found or access denied' });
+  const { data: clinic, error: clinicError } = await supabase
+    .from('clinics')
+    .select('hospital_id')
+    .eq('id', id)
+    .single();
+
+  if (clinicError || !clinic || clinic.hospital_id !== req.user.id) {
+    return res.status(403).json({ error: 'Clinic not found or access denied' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('slots')
+      .insert({
+        clinic_id: id,
+        date,
+        time,
+        doctor_name: doctor_name || null,
+        duration: duration || 30
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') { // Unique constraint
+        return res.status(400).json({ error: 'Slot already exists' });
+      }
+      return res.status(500).json({ error: error.message });
     }
 
-    db.run(
-      'INSERT OR IGNORE INTO slots (clinic_id, date, time, doctor_name, duration) VALUES (?, ?, ?, ?, ?)',
-      [id, date, time, doctor_name || null, duration || 30],
-      function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        res.json({ id: this.lastID, message: 'Slot created successfully' });
-      }
-    );
-  });
+    res.json({ id: data.id, message: 'Slot created successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get hospitals clinics
-app.get('/api/hospital/clinics', authenticateToken, (req, res) => {
+app.get('/api/hospital/clinics', authenticateToken, async (req, res) => {
   if (req.user.role !== 'hospital') {
     return res.status(403).json({ error: 'Access denied' });
   }
 
-  db.all('SELECT * FROM clinics WHERE hospital_id = ? ORDER BY name', [req.user.id], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  try {
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .eq('hospital_id', req.user.id)
+      .order('name', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
     }
-    res.json(rows);
-  });
+
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Appointments Routes (updated)
+// ==================== APPOINTMENT ROUTES ====================
 
 // Create appointment (patient booking)
-app.post('/api/appointments', authenticateToken, (req, res) => {
+app.post('/api/appointments', authenticateToken, async (req, res) => {
   const { clinic_id, appointment_date, appointment_time, slot_id, reason, disease, doctor_name } = req.body;
   const patient_id = req.user.role === 'patient' ? req.user.id : null;
   const patient_name = req.user.role === 'patient' ? req.user.name : req.body.patient_name;
@@ -524,298 +593,439 @@ app.post('/api/appointments', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Check if slot is available
-  if (slot_id) {
-    db.get('SELECT is_available, id FROM slots WHERE id = ?', [slot_id], (err, slot) => {
-      if (err || !slot) {
+  try {
+    // Check if slot is available
+    if (slot_id) {
+      const { data: slot, error: slotError } = await supabase
+        .from('slots')
+        .select('id, is_available')
+        .eq('id', slot_id)
+        .single();
+
+      if (slotError || !slot) {
         return res.status(400).json({ error: 'Invalid slot' });
       }
 
-      db.get('SELECT id FROM appointments WHERE slot_id = ? AND appointment_date = ? AND appointment_time = ? AND status = ?',
-        [slot_id, appointment_date, appointment_time, 'scheduled'],
-        (err, existing) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-          if (existing) {
-            return res.status(400).json({ error: 'Slot already booked' });
-          }
+      const { data: existingAppointment } = await supabase
+        .from('appointments')
+        .select('id')
+        .eq('slot_id', slot_id)
+        .eq('appointment_date', appointment_date)
+        .eq('appointment_time', appointment_time)
+        .eq('status', 'scheduled')
+        .single();
 
-          createAppointment();
-        });
-    });
-  } else {
-    createAppointment();
-  }
-
-  function createAppointment() {
-    db.run(
-      'INSERT INTO appointments (patient_id, clinic_id, patient_name, patient_phone, patient_email, appointment_date, appointment_time, slot_id, reason, disease, doctor_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [patient_id, clinic_id, patient_name, patient_phone, patient_email || null, appointment_date, appointment_time, slot_id || null, reason || '', disease || '', doctor_name || null],
-      function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-
-        // Mark slot as booked if slot_id provided
-        if (slot_id) {
-          db.run('UPDATE slots SET is_available = 0 WHERE id = ?', [slot_id]);
-        }
-
-        res.json({ id: this.lastID, message: 'Appointment booked successfully' });
+      if (existingAppointment) {
+        return res.status(400).json({ error: 'Slot already booked' });
       }
-    );
+    }
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert({
+        patient_id,
+        clinic_id,
+        patient_name,
+        patient_phone,
+        patient_email: patient_email || null,
+        appointment_date,
+        appointment_time,
+        slot_id: slot_id || null,
+        reason: reason || '',
+        disease: disease || '',
+        doctor_name: doctor_name || null,
+        status: 'scheduled'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    // Mark slot as unavailable if slot_id provided
+    if (slot_id) {
+      await supabase
+        .from('slots')
+        .update({ is_available: false })
+        .eq('id', slot_id);
+    }
+
+    res.json({ id: data.id, message: 'Appointment booked successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 // Get patient appointments
-app.get('/api/patient/appointments', authenticateToken, (req, res) => {
+app.get('/api/patient/appointments', authenticateToken, async (req, res) => {
   if (req.user.role !== 'patient') {
     return res.status(403).json({ error: 'Access denied' });
   }
 
-  db.all(
-    `SELECT a.*, c.name as clinic_name, c.address as clinic_address 
-     FROM appointments a 
-     JOIN clinics c ON a.clinic_id = c.id 
-     WHERE a.patient_id = ? 
-     ORDER BY a.appointment_date, a.appointment_time`,
-    [req.user.id],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        clinics!inner(name, address)
+      `)
+      .eq('patient_id', req.user.id)
+      .order('appointment_date', { ascending: true })
+      .order('appointment_time', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
     }
-  );
+
+    const appointments = data.map(apt => ({
+      ...apt,
+      clinic_name: apt.clinics?.name,
+      clinic_address: apt.clinics?.address
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get hospital appointments
-app.get('/api/hospital/appointments', authenticateToken, (req, res) => {
+app.get('/api/hospital/appointments', authenticateToken, async (req, res) => {
   if (req.user.role !== 'hospital') {
     return res.status(403).json({ error: 'Access denied' });
   }
 
-  db.all(
-    `SELECT a.*, c.name as clinic_name 
-     FROM appointments a 
-     JOIN clinics c ON a.clinic_id = c.id 
-     WHERE c.hospital_id = ? 
-     ORDER BY a.appointment_date, a.appointment_time`,
-    [req.user.id],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
+  try {
+    // First get all clinic IDs for this hospital
+    const { data: clinics } = await supabase
+      .from('clinics')
+      .select('id')
+      .eq('hospital_id', req.user.id);
+
+    const clinicIds = clinics?.map(c => c.id) || [];
+
+    if (clinicIds.length === 0) {
+      return res.json([]);
     }
-  );
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        clinics!inner(name)
+      `)
+      .in('clinic_id', clinicIds)
+      .order('appointment_date', { ascending: true })
+      .order('appointment_time', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const appointments = data.map(apt => ({
+      ...apt,
+      clinic_name: apt.clinics?.name
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Get all appointments (legacy support)
-app.get('/api/appointments', authenticateToken, (req, res) => {
-  let query = 'SELECT a.*, c.name as clinic_name FROM appointments a LEFT JOIN clinics c ON a.clinic_id = c.id WHERE 1=1';
-  const params = [];
+// Get all appointments
+app.get('/api/appointments', authenticateToken, async (req, res) => {
+  try {
+    let query = supabase
+      .from('appointments')
+      .select(`
+        *,
+        clinics(name)
+      `);
 
-  if (req.user.role === 'patient') {
-    query += ' AND a.patient_id = ?';
-    params.push(req.user.id);
-  } else if (req.user.role === 'hospital') {
-    query += ' AND c.hospital_id = ?';
-    params.push(req.user.id);
-  }
-
-  query += ' ORDER BY a.appointment_date, a.appointment_time';
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (req.user.role === 'patient') {
+      query = query.eq('patient_id', req.user.id);
+    } else if (req.user.role === 'hospital') {
+      // Get clinic IDs for this hospital
+      const { data: clinics } = await supabase
+        .from('clinics')
+        .select('id')
+        .eq('hospital_id', req.user.id);
+      
+      const clinicIds = clinics?.map(c => c.id) || [];
+      if (clinicIds.length > 0) {
+        query = query.in('clinic_id', clinicIds);
+      } else {
+        return res.json([]);
+      }
     }
-    res.json(rows);
-  });
+
+    query = query.order('appointment_date', { ascending: true }).order('appointment_time', { ascending: true });
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const appointments = data.map(apt => ({
+      ...apt,
+      clinic_name: apt.clinics?.name
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get appointments for today
-app.get('/api/appointments/today', authenticateToken, (req, res) => {
-  const today = format(new Date(), 'yyyy-MM-dd');
-  let query = `SELECT a.*, c.name as clinic_name 
-               FROM appointments a 
-               LEFT JOIN clinics c ON a.clinic_id = c.id 
-               WHERE a.appointment_date = ?`;
-  const params = [today];
+app.get('/api/appointments/today', authenticateToken, async (req, res) => {
+  try {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    let query = supabase
+      .from('appointments')
+      .select(`
+        *,
+        clinics(name)
+      `)
+      .eq('appointment_date', today);
 
-  if (req.user.role === 'patient') {
-    query += ' AND a.patient_id = ?';
-    params.push(req.user.id);
-  } else if (req.user.role === 'hospital') {
-    query += ' AND c.hospital_id = ?';
-    params.push(req.user.id);
-  }
-
-  query += ' ORDER BY a.appointment_time';
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (req.user.role === 'patient') {
+      query = query.eq('patient_id', req.user.id);
+    } else if (req.user.role === 'hospital') {
+      const { data: clinics } = await supabase
+        .from('clinics')
+        .select('id')
+        .eq('hospital_id', req.user.id);
+      
+      const clinicIds = clinics?.map(c => c.id) || [];
+      if (clinicIds.length > 0) {
+        query = query.in('clinic_id', clinicIds);
+      } else {
+        return res.json([]);
+      }
     }
-    res.json(rows);
-  });
+
+    query = query.order('appointment_time', { ascending: true });
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const appointments = data.map(apt => ({
+      ...apt,
+      clinic_name: apt.clinics?.name
+    }));
+
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Update appointment status
-app.patch('/api/appointments/:id', authenticateToken, (req, res) => {
+app.patch('/api/appointments/:id', authenticateToken, async (req, res) => {
   const { status } = req.body;
   const { id } = req.params;
 
-  // Verify ownership
-  db.get('SELECT a.*, c.hospital_id FROM appointments a LEFT JOIN clinics c ON a.clinic_id = c.id WHERE a.id = ?',
-    [id], (err, appointment) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (!appointment) {
-        return res.status(404).json({ error: 'Appointment not found' });
-      }
+  try {
+    // Get appointment with clinic info
+    const { data: appointment, error: fetchError } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        clinics(hospital_id)
+      `)
+      .eq('id', id)
+      .single();
 
-      const canModify = req.user.role === 'hospital' && appointment.hospital_id === req.user.id ||
-                       req.user.role === 'patient' && appointment.patient_id === req.user.id ||
-                       req.user.role === 'admin';
+    if (fetchError || !appointment) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
 
-      if (!canModify) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+    const canModify = req.user.role === 'hospital' && appointment.clinics?.hospital_id === req.user.id ||
+                     req.user.role === 'patient' && appointment.patient_id === req.user.id;
 
-      db.run('UPDATE appointments SET status = ? WHERE id = ?', [status, id], function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        res.json({ message: 'Appointment updated successfully' });
-      });
-    });
+    if (!canModify) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status })
+      .eq('id', id);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ message: 'Appointment updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Delete appointment
-app.delete('/api/appointments/:id', authenticateToken, (req, res) => {
+app.delete('/api/appointments/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
-  db.get('SELECT a.*, c.hospital_id FROM appointments a LEFT JOIN clinics c ON a.clinic_id = c.id WHERE a.id = ?',
-    [id], (err, appointment) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (!appointment) {
-        return res.status(404).json({ error: 'Appointment not found' });
-      }
+  try {
+    const { data: appointment, error: fetchError } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        clinics(hospital_id)
+      `)
+      .eq('id', id)
+      .single();
 
-      const canDelete = req.user.role === 'hospital' && appointment.hospital_id === req.user.id ||
-                       req.user.role === 'patient' && appointment.patient_id === req.user.id;
+    if (fetchError || !appointment) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
 
-      if (!canDelete) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+    const canDelete = req.user.role === 'hospital' && appointment.clinics?.hospital_id === req.user.id ||
+                     req.user.role === 'patient' && appointment.patient_id === req.user.id;
 
-      db.run('DELETE FROM appointments WHERE id = ?', [id], function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
+    if (!canDelete) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
-        // Free up the slot
-        if (appointment.slot_id) {
-          db.run('UPDATE slots SET is_available = 1 WHERE id = ?', [appointment.slot_id]);
-        }
+    const { error } = await supabase
+      .from('appointments')
+      .delete()
+      .eq('id', id);
 
-        res.json({ message: 'Appointment deleted successfully' });
-      });
-    });
-});
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
 
-// Get dashboard stats (hospital)
-app.get('/api/stats', authenticateToken, (req, res) => {
-  const today = format(new Date(), 'yyyy-MM-dd');
-  
-  let appointmentsQuery = 'SELECT COUNT(*) as total FROM appointments a';
-  let appointmentsParams = [];
-  let appointmentsJoin = '';
+    // Free up the slot
+    if (appointment.slot_id) {
+      await supabase
+        .from('slots')
+        .update({ is_available: true })
+        .eq('id', appointment.slot_id);
+    }
 
-  if (req.user.role === 'hospital') {
-    appointmentsJoin = ' JOIN clinics c ON a.clinic_id = c.id WHERE c.hospital_id = ?';
-    appointmentsParams = [req.user.id];
-  } else if (req.user.role === 'patient') {
-    appointmentsJoin = ' WHERE a.patient_id = ?';
-    appointmentsParams = [req.user.id];
+    res.json({ message: 'Appointment deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
+});
 
-  db.get(`${appointmentsQuery}${appointmentsJoin}`, appointmentsParams, (err, totalRow) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+// Get dashboard stats
+app.get('/api/stats', authenticateToken, async (req, res) => {
+  try {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    
+    let appointmentsQuery = supabase.from('appointments').select('id', { count: 'exact', head: true });
 
-    const todayParams = [...appointmentsParams, today];
-    db.get(`${appointmentsQuery}${appointmentsJoin} AND a.appointment_date = ?`, todayParams, (err, todayRow) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
+    if (req.user.role === 'hospital') {
+      const { data: clinics } = await supabase
+        .from('clinics')
+        .select('id')
+        .eq('hospital_id', req.user.id);
+      
+      const clinicIds = clinics?.map(c => c.id) || [];
+      if (clinicIds.length > 0) {
+        appointmentsQuery = supabase.from('appointments').select('id', { count: 'exact', head: true }).in('clinic_id', clinicIds);
+      } else {
+        return res.json({ total: 0, today: 0, followups: 0, pending: 0 });
       }
-
-      db.get(`${appointmentsQuery}${appointmentsJoin} AND a.status = "scheduled"`, appointmentsParams, (err, pendingRow) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-
-        db.get('SELECT COUNT(*) as followups FROM followups', [], (err, followupRow) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-
-          res.json({
-            total: totalRow.total,
-            today: todayRow.today,
-            followups: followupRow.followups,
-            pending: pendingRow.pending
-          });
-        });
-      });
-    });
-  });
-});
-
-// Follow-ups routes (keeping existing)
-app.get('/api/followups', authenticateToken, (req, res) => {
-  db.all('SELECT * FROM followups ORDER BY followup_date, followup_time', (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    } else if (req.user.role === 'patient') {
+      appointmentsQuery = supabase.from('appointments').select('id', { count: 'exact', head: true }).eq('patient_id', req.user.id);
     }
-    res.json(rows);
-  });
+
+    const { count: total } = await appointmentsQuery;
+
+    let todayQuery = appointmentsQuery.eq('appointment_date', today);
+    const { count: todayCount } = await todayQuery;
+
+    let pendingQuery = appointmentsQuery.eq('status', 'scheduled');
+    const { count: pending } = await pendingQuery;
+
+    const { count: followups } = await supabase
+      .from('followups')
+      .select('id', { count: 'exact', head: true });
+
+    res.json({
+      total: total || 0,
+      today: todayCount || 0,
+      followups: followups || 0,
+      pending: pending || 0
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/followups', authenticateToken, (req, res) => {
+// ==================== FOLLOW-UP ROUTES ====================
+
+app.get('/api/followups', authenticateToken, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('followups')
+      .select('*')
+      .order('followup_date', { ascending: true })
+      .order('followup_time', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/followups', authenticateToken, async (req, res) => {
   const { appointment_id, patient_name, patient_phone, followup_date, followup_time, reason, doctor_name } = req.body;
   
   if (!patient_name || !patient_phone || !followup_date || !followup_time) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  db.run(
-    'INSERT INTO followups (appointment_id, patient_name, patient_phone, followup_date, followup_time, reason, doctor_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [appointment_id || null, patient_name, patient_phone, followup_date, followup_time, reason || '', doctor_name || 'Dr. Smith'],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({ id: this.lastID, message: 'Follow-up scheduled successfully' });
+  try {
+    const { data, error } = await supabase
+      .from('followups')
+      .insert({
+        appointment_id: appointment_id || null,
+        patient_name,
+        patient_phone,
+        followup_date,
+        followup_time,
+        reason: reason || '',
+        doctor_name: doctor_name || 'Dr. Smith'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
     }
-  );
+
+    res.json({ id: data.id, message: 'Follow-up scheduled successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/appointments/:id/followup', authenticateToken, (req, res) => {
+app.post('/api/appointments/:id/followup', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
-  db.get('SELECT * FROM appointments WHERE id = ?', [id], (err, appointment) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const { data: appointment, error: appointmentError } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    if (!appointment) {
+    if (appointmentError || !appointment) {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
@@ -824,18 +1034,31 @@ app.post('/api/appointments/:id/followup', authenticateToken, (req, res) => {
     const followupDateStr = format(followupDate, 'yyyy-MM-dd');
     const followupTimeStr = appointment.appointment_time;
 
-    db.run(
-      'INSERT INTO followups (appointment_id, patient_name, patient_phone, followup_date, followup_time, reason, doctor_name) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, appointment.patient_name, appointment.patient_phone, followupDateStr, followupTimeStr, 'Follow-up appointment', appointment.doctor_name],
-      function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        res.json({ id: this.lastID, message: 'Follow-up scheduled successfully' });
-      }
-    );
-  });
+    const { data, error } = await supabase
+      .from('followups')
+      .insert({
+        appointment_id: id,
+        patient_name: appointment.patient_name,
+        patient_phone: appointment.patient_phone,
+        followup_date: followupDateStr,
+        followup_time: followupTimeStr,
+        reason: 'Follow-up appointment',
+        doctor_name: appointment.doctor_name || 'Dr. Smith'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ id: data.id, message: 'Follow-up scheduled successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
+
+// ==================== CLINIC SEARCH ====================
 
 // Calculate distance between two coordinates (Haversine formula)
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -850,37 +1073,46 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 // Search clinics with distance
-app.get('/api/clinics/search', (req, res) => {
-  const { disease, city, search, latitude, longitude, maxDistance } = req.query;
-  let query = 'SELECT c.*, u.name as hospital_name FROM clinics c JOIN users u ON c.hospital_id = u.id WHERE 1=1';
-  const params = [];
+app.get('/api/clinics/search', async (req, res) => {
+  try {
+    const { disease, city, search, latitude, longitude, maxDistance } = req.query;
+    
+    let query = supabase
+      .from('clinics')
+      .select(`
+        *,
+        users!inner(name)
+      `);
 
-  if (disease) {
-    query += ' AND c.diseases_handled LIKE ?';
-    params.push(`%${disease}%`);
-  }
-
-  if (city) {
-    query += ' AND c.city = ?';
-    params.push(city);
-  }
-
-  if (search) {
-    query += ' AND (c.name LIKE ? OR c.address LIKE ? OR c.specialties LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-  }
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (disease) {
+      query = query.ilike('diseases_handled', `%${disease}%`);
     }
+
+    if (city) {
+      query = query.eq('city', city);
+    }
+
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,address.ilike.%${search}%,specialties.ilike.%${search}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    let clinics = data.map(clinic => ({
+      ...clinic,
+      hospital_name: clinic.users?.name
+    }));
 
     // Calculate distance if coordinates provided
     if (latitude && longitude) {
       const userLat = parseFloat(latitude);
       const userLon = parseFloat(longitude);
       
-      rows = rows.map(clinic => {
+      clinics = clinics.map(clinic => {
         if (clinic.latitude && clinic.longitude) {
           const distance = calculateDistance(
             userLat, userLon,
@@ -892,16 +1124,18 @@ app.get('/api/clinics/search', (req, res) => {
       });
 
       // Sort by distance
-      rows.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+      clinics.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
 
       // Filter by max distance if provided
       if (maxDistance) {
-        rows = rows.filter(clinic => (clinic.distance || Infinity) <= parseFloat(maxDistance));
+        clinics = clinics.filter(clinic => (clinic.distance || Infinity) <= parseFloat(maxDistance));
       }
     }
 
-    res.json(rows);
-  });
+    res.json(clinics);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Serve React app (only in non-serverless mode)
@@ -912,6 +1146,7 @@ if (process.env.VERCEL !== '1') {
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Supabase connected: ${process.env.SUPABASE_URL ? 'Yes' : 'No'}`);
   });
 }
 
