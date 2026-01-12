@@ -10,13 +10,6 @@
     "date-fns": "^2.30.0",
     "react-router-dom": "^6.8.0"
   },
-  "overrides": {
-    "whatwg-encoding": "^2.0.0",
-    "w3c-hr-time": "^1.0.2",
-    "stable": "^0.2.0",
-    "rimraf": "^5.0.0",
-    "rollup-plugin-terser": "npm:@rollup/plugin-terser@^7.0.2"
-  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
