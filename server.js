@@ -7,8 +7,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const supabase = require('./db/supabase');
 
-// Timeout helper for Supabase queries (8 seconds default for faster response)
-function withTimeout(promise, timeoutMs = 8000) {
+// Timeout helper for Supabase queries (25 seconds default to account for cold starts)
+function withTimeout(promise, timeoutMs = 25000) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
@@ -18,7 +18,7 @@ function withTimeout(promise, timeoutMs = 8000) {
 }
 
 // Wrapper for Supabase queries with timeout and error handling
-async function safeSupabaseQuery(queryPromise, timeoutMs = 8000) {
+async function safeSupabaseQuery(queryPromise, timeoutMs = 25000) {
   try {
     const result = await withTimeout(queryPromise, timeoutMs);
     return result;
@@ -81,10 +81,10 @@ app.get('/api/test-db', async (req, res) => {
   }
 
   try {
-    // Try a simple query to test connection (5 second timeout)
+    // Try a simple query to test connection (10 second timeout for test endpoint)
     const { data, error } = await safeSupabaseQuery(
       supabase.from('users').select('count', { count: 'exact', head: true }),
-      5000
+      10000
     );
 
     if (error) {
@@ -158,7 +158,7 @@ async function initializeSampleData() {
 
     if (clinicsError || clinics.length === 0) {
       // Create sample hospital user
-      const hashedPassword = await bcrypt.hash('hospital123', 10);
+      const hashedPassword = await bcrypt.hash('hospital123', 8);
       
       const { data: hospitalUser, error: userError } = await supabase
         .from('users')
@@ -278,8 +278,15 @@ async function initializeSampleData() {
 
 // Initialize on startup (ONLY in local development, NEVER on Vercel)
 // This function is completely disabled on Vercel to prevent timeouts
-if (process.env.VERCEL !== '1' && process.env.VERCEL_ENV !== 'production' && !process.env.VERCEL) {
-  // Don't await - let it run in background with timeout
+// Check multiple ways to ensure it NEVER runs on Vercel
+const isVercel = process.env.VERCEL === '1' || 
+                 process.env.VERCEL === 'true' || 
+                 process.env.VERCEL_ENV === 'production' ||
+                 process.env.VERCEL_ENV === 'preview' ||
+                 !!process.env.VERCEL;
+
+if (!isVercel) {
+  // Only run in local development
   setTimeout(() => {
     initializeSampleData().catch(err => {
       console.error('Error initializing sample data:', err);
@@ -307,7 +314,8 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Use bcrypt rounds=8 for faster hashing (still secure, but faster on serverless)
+    const hashedPassword = await bcrypt.hash(password, 8);
 
     // Create the query first
     const insertQuery = supabase
@@ -322,13 +330,14 @@ app.post('/api/auth/register', async (req, res) => {
       .select()
       .single();
 
-    // Execute with timeout (8 seconds for registration)
-    const result = await safeSupabaseQuery(insertQuery, 8000);
+    // Execute with timeout (25 seconds for registration to account for cold starts)
+    const result = await safeSupabaseQuery(insertQuery, 25000);
     
     const { data, error } = result;
 
     if (error) {
-      if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique')) {
+      // Ensure duplicate email errors return 400 status
+      if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique') || error.message?.includes('already exists')) {
         return res.status(400).json({ error: 'Email already registered' });
       }
       if (error.message?.includes('permission denied') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
@@ -396,7 +405,7 @@ app.post('/api/auth/login', async (req, res) => {
       .eq('email', email.toLowerCase().trim())
       .single();
 
-    const result = await safeSupabaseQuery(loginQuery, 8000);
+    const result = await safeSupabaseQuery(loginQuery, 25000);
     const { data: user, error } = result;
 
     if (error || !user) {

@@ -5,7 +5,7 @@
   "framework": null,
   "functions": {
     "api/server.js": {
-      "maxDuration": 25
+      "maxDuration": 60
     }
   },
   "rewrites": [

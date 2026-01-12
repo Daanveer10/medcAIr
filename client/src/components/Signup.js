@@ -4,6 +4,50 @@ import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { API_URL } from '../config/api';
 
+// Helper function to safely extract error message (never returns an object)
+const getErrorMessage = (err) => {
+  if (!err) return 'Sign up failed. Please try again.';
+  
+  // Check for response data error (string)
+  if (err.response?.data?.error) {
+    const errorData = err.response.data.error;
+    if (typeof errorData === 'string') {
+      return errorData;
+    }
+    if (typeof errorData === 'object' && errorData.message) {
+      return String(errorData.message);
+    }
+  }
+  
+  // Check for error message
+  if (err.message && typeof err.message === 'string') {
+    if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+      return 'Request timed out. The server may be slow or unreachable. Please try again.';
+    }
+    if (err.message === 'Network Error' || err.code === 'ERR_NETWORK' || err.code === 'ERR_INTERNET_DISCONNECTED') {
+      return 'Cannot connect to server. Please check your internet connection and try again.';
+    }
+    return err.message;
+  }
+  
+  // Check for status codes
+  if (err.response?.status === 404) {
+    return 'API endpoint not found. Please check the server configuration.';
+  }
+  if (err.response?.status === 500) {
+    return 'Server error. Please check if Supabase is configured correctly.';
+  }
+  if (err.response?.status === 504) {
+    return 'Request timed out. Please try again.';
+  }
+  
+  // Fallback
+  return 'Sign up failed. Please try again.';
+};
+
+// Phone validation regex (10-15 digits)
+const PHONE_REGEX = /^\d{10,15}$/;
+
 const Signup = ({ onSignup }) => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -16,6 +60,8 @@ const Signup = ({ onSignup }) => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -30,6 +76,7 @@ const Signup = ({ onSignup }) => {
     setLoading(true);
     setError('');
 
+    // Validation
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       setLoading(false);
@@ -42,19 +89,29 @@ const Signup = ({ onSignup }) => {
       return;
     }
 
+    // Phone validation (if provided)
+    if (formData.phone && !PHONE_REGEX.test(formData.phone.replace(/\D/g, ''))) {
+      setError('Phone number must be 10-15 digits');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { confirmPassword, ...signupData } = formData;
-      console.log('Signing up with:', { ...signupData, password: '***' });
-      console.log('API URL:', `${API_URL}/auth/register`);
-      console.log('Full URL:', window.location.origin + `${API_URL}/auth/register`);
+      // Sanitize and prepare data
+      const { confirmPassword, ...signupData } = {
+        ...formData,
+        email: formData.email.trim().toLowerCase(),
+        name: formData.name.trim(),
+        phone: formData.phone ? formData.phone.replace(/\D/g, '') : ''
+      };
       
       const response = await axios.post(`${API_URL}/auth/register`, signupData, {
-        timeout: 30000, // 30 second timeout
+        timeout: 30000,
         headers: {
           'Content-Type': 'application/json'
         }
       });
-      console.log('Registration response received:', response.status, response.data);
+      
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);
@@ -70,36 +127,8 @@ const Signup = ({ onSignup }) => {
         navigate('/hospital');
       }
     } catch (err) {
-      console.error('Signup error:', err);
-      
-      let errorMessage = 'Sign up failed. Please try again.';
-      
-      if (err) {
-        console.error('Error details:', {
-          message: err.message || 'Unknown error',
-          code: err.code || 'Unknown code',
-          response: err.response?.data,
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          url: err.config?.url,
-          timeout: err.code === 'ECONNABORTED'
-        });
-        
-        if (err.code === 'ECONNABORTED' || (err.message && err.message.includes('timeout'))) {
-          errorMessage = 'Request timed out. The server may be slow or unreachable. Please try again.';
-        } else if (err.response?.data?.error) {
-          errorMessage = err.response.data.error;
-        } else if (err.message === 'Network Error' || err.code === 'ERR_NETWORK' || err.code === 'ERR_INTERNET_DISCONNECTED') {
-          errorMessage = 'Cannot connect to server. Please check your internet connection and try again.';
-        } else if (err.response?.status === 404) {
-          errorMessage = 'API endpoint not found. Please check the server configuration.';
-        } else if (err.response?.status === 500) {
-          errorMessage = 'Server error. Please check if Supabase is configured correctly.';
-        } else if (err.message) {
-          errorMessage = err.message;
-        }
-      }
-      
+      // Use helper function to safely extract error message (never an object)
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -151,14 +180,15 @@ const Signup = ({ onSignup }) => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="phone">Phone Number</label>
+            <label htmlFor="phone">Phone Number (Optional)</label>
             <input
               type="tel"
               id="phone"
               name="phone"
               value={formData.phone}
               onChange={handleChange}
-              placeholder="Enter your phone number"
+              placeholder="Enter your phone number (10-15 digits)"
+              pattern="[0-9]{10,15}"
             />
           </div>
 
@@ -178,31 +208,75 @@ const Signup = ({ onSignup }) => {
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              placeholder="Enter password (min 6 characters)"
-              autoComplete="new-password"
-              minLength="6"
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                id="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                placeholder="Enter password (min 6 characters)"
+                autoComplete="new-password"
+                minLength="6"
+                style={{ paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#666',
+                  padding: '5px'
+                }}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           <div className="form-group">
             <label htmlFor="confirmPassword">Confirm Password</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              name="confirmPassword"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              required
-              placeholder="Confirm your password"
-              autoComplete="new-password"
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                id="confirmPassword"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                required
+                placeholder="Confirm your password"
+                autoComplete="new-password"
+                style={{ paddingRight: '40px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#666',
+                  padding: '5px'
+                }}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           <button 
@@ -223,4 +297,3 @@ const Signup = ({ onSignup }) => {
 };
 
 export default Signup;
-
