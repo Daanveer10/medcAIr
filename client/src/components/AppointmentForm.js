@@ -29,37 +29,8 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
         });
         setClinics(response.data || []);
       } catch (error) {
-        // Extract error message safely (never pass object to setMessage)
-        let errorText = 'Could not load clinics. You can still enter a clinic ID manually.';
-        
-        if (error.response?.data?.error) {
-          const errorData = error.response.data.error;
-          if (typeof errorData === 'string') {
-            errorText = errorData;
-          } else if (typeof errorData === 'object' && errorData.message) {
-            errorText = String(errorData.message);
-          }
-        } else if (error.message && typeof error.message === 'string') {
-          if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-            errorText = 'Clinics loading slowly. You can enter a clinic ID manually below.';
-          } else if (error.response?.status === 504) {
-            errorText = 'Clinics loading slowly. You can enter a clinic ID manually below.';
-          } else {
-            errorText = error.message;
-          }
-        } else if (error.response?.status) {
-          if (error.response.status === 504) {
-            errorText = 'Clinics loading slowly. You can enter a clinic ID manually below.';
-          } else if (error.response.status === 500) {
-            errorText = 'Server error. You can enter a clinic ID manually below.';
-          }
-        }
-        
-        // Don't show error message - just allow manual entry
-        // setMessage({ 
-        //   type: 'error', 
-        //   text: errorText
-        // });
+        // Silently handle error - form still works with manual clinic ID entry
+        // No error message needed since user can always enter clinic ID manually
       } finally {
         setLoadingClinics(false);
       }
