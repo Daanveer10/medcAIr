@@ -510,13 +510,17 @@ app.get('/api/clinics', async (req, res) => {
     const { data, error } = await safeSupabaseQuery(query, 5000);
 
     if (error) {
-      return res.status(500).json({ error: error.message });
+      // Return empty array instead of error for better UX
+      console.error('Clinic query error:', error.message);
+      return res.json([]);
     }
 
     // Return clinics directly (without hospital_name for now to speed up)
     res.json(data || []);
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Error fetching clinics' });
+    // Return empty array on timeout/error instead of failing
+    console.error('Clinic fetch error:', error.message);
+    res.json([]);
   }
 });
 
@@ -926,13 +930,17 @@ app.get('/api/patient/appointments', async (req, res) => {
     );
 
     if (error) {
-      return res.status(500).json({ error: error.message });
+      // Return empty array instead of error for better UX
+      console.error('Appointment query error:', error.message);
+      return res.json([]);
     }
 
     // Return appointments directly (without clinic join for speed)
     res.json(data || []);
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Error fetching appointments' });
+    // Return empty array on timeout/error instead of failing
+    console.error('Appointment fetch error:', error.message);
+    res.json([]);
   }
 });
 
