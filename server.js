@@ -31,31 +31,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint - must respond immediately
 app.get('/api/health', (req, res) => {
-  try {
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      supabase: {
-        configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
-        url: process.env.SUPABASE_URL ? 'Set' : 'Not set',
-        key: process.env.SUPABASE_ANON_KEY ? 'Set' : 'Not set',
-        client: supabase ? 'Available' : 'Not available'
-      },
-      jwt: {
-        configured: !!process.env.JWT_SECRET
-      },
-      environment: process.env.NODE_ENV || 'development',
-      vercel: process.env.VERCEL === '1' ? 'Yes' : 'No'
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'error', 
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
+  res.json({
+    status: 'ok',
+    supabase_configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+    jwt_configured: !!process.env.JWT_SECRET
+  });
 });
 
 // Test endpoint to verify routing
@@ -937,8 +919,8 @@ app.patch('/api/appointments/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    const canModify = req.user.role === 'hospital' && appointment.clinics?.hospital_id === req.user.id ||
-                     req.user.role === 'patient' && appointment.patient_id === req.user.id;
+    const canModify = (req.user.role === 'hospital' && appointment.clinics?.hospital_id === req.user.id) ||
+                      (req.user.role === 'patient' && appointment.patient_id === req.user.id);
 
     if (!canModify) {
       return res.status(403).json({ error: 'Access denied' });
@@ -977,8 +959,8 @@ app.delete('/api/appointments/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    const canDelete = req.user.role === 'hospital' && appointment.clinics?.hospital_id === req.user.id ||
-                     req.user.role === 'patient' && appointment.patient_id === req.user.id;
+    const canDelete = (req.user.role === 'hospital' && appointment.clinics?.hospital_id === req.user.id) ||
+                      (req.user.role === 'patient' && appointment.patient_id === req.user.id);
 
     if (!canDelete) {
       return res.status(403).json({ error: 'Access denied' });
