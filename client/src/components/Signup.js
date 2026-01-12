@@ -46,8 +46,14 @@ const Signup = ({ onSignup }) => {
       const { confirmPassword, ...signupData } = formData;
       console.log('Signing up with:', { ...signupData, password: '***' });
       console.log('API URL:', `${API_URL}/auth/register`);
+      console.log('Full URL:', window.location.origin + `${API_URL}/auth/register`);
       
-      const response = await axios.post(`${API_URL}/auth/register`, signupData);
+      const response = await axios.post(`${API_URL}/auth/register`, signupData, {
+        timeout: 30000, // 30 second timeout
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       console.log('Registration response received:', response.status, response.data);
       const { token, user } = response.data;
       
@@ -67,18 +73,25 @@ const Signup = ({ onSignup }) => {
       console.error('Signup error:', err);
       console.error('Error details:', {
         message: err.message,
+        code: err.code,
         response: err.response?.data,
         status: err.response?.status,
-        url: err.config?.url
+        statusText: err.response?.statusText,
+        url: err.config?.url,
+        timeout: err.code === 'ECONNABORTED'
       });
       
       let errorMessage = 'Sign up failed. Please try again.';
-      if (err.response?.data?.error) {
+      if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        errorMessage = 'Request timed out. The server may be slow or unreachable. Please try again.';
+      } else if (err.response?.data?.error) {
         errorMessage = err.response.data.error;
-      } else if (err.message === 'Network Error' || err.code === 'ERR_NETWORK') {
-        errorMessage = 'Cannot connect to server. Please check if the backend is running.';
+      } else if (err.message === 'Network Error' || err.code === 'ERR_NETWORK' || err.code === 'ERR_INTERNET_DISCONNECTED') {
+        errorMessage = 'Cannot connect to server. Please check your internet connection and try again.';
       } else if (err.response?.status === 404) {
         errorMessage = 'API endpoint not found. Please check the server configuration.';
+      } else if (err.response?.status === 500) {
+        errorMessage = 'Server error. Please check if Supabase is configured correctly.';
       } else if (err.message) {
         errorMessage = err.message;
       }
