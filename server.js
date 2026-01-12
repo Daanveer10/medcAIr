@@ -18,7 +18,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'client/build')));
+// Only serve static files in non-Vercel mode
+if (process.env.VERCEL !== '1') {
+  app.use(express.static(path.join(__dirname, 'client/build')));
+}
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -228,18 +231,16 @@ app.post('/api/auth/register', async (req, res) => {
   const { email, password, name, role, phone } = req.body;
 
   if (!email || !password || !name || !role) {
-    console.log('Missing required fields');
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   if (!['patient', 'hospital'].includes(role)) {
-    console.log('Invalid role:', role);
     return res.status(400).json({ error: 'Invalid role. Must be patient or hospital' });
   }
 
   // Check if Supabase is configured
-  if (!supabase || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-    console.error('Supabase not configured!');
+  if (!supabase) {
+    console.error('Supabase client not available!');
     return res.status(500).json({ error: 'Database not configured. Please check environment variables.' });
   }
 
@@ -266,9 +267,12 @@ app.post('/api/auth/register', async (req, res) => {
     console.log('Supabase response - error:', error ? JSON.stringify(error, null, 2) : 'None');
 
     if (error) {
-      console.error('Supabase error during registration:', error);
-      if (error.code === '23505') { // Unique constraint violation
+      console.error('Supabase error:', error);
+      if (error.code === '23505' || error.message?.includes('duplicate')) {
         return res.status(400).json({ error: 'Email already registered' });
+      }
+      if (error.message?.includes('permission denied') || error.message?.includes('RLS')) {
+        return res.status(500).json({ error: 'Database permission error. Please check Row Level Security policies.' });
       }
       return res.status(500).json({ error: error.message || 'Database error occurred' });
     }
@@ -277,8 +281,6 @@ app.post('/api/auth/register', async (req, res) => {
       console.error('No data returned from Supabase');
       return res.status(500).json({ error: 'User created but data not returned' });
     }
-
-    console.log('User created successfully:', data.id);
     const token = jwt.sign(
       { id: data.id, email: data.email, role: data.role, name: data.name },
       JWT_SECRET,
@@ -294,14 +296,9 @@ app.post('/api/auth/register', async (req, res) => {
       user: { id: data.id, email: data.email, name: data.name, role: data.role, phone: data.phone }
     });
   } catch (error) {
-    console.error('=== REGISTRATION ERROR ===');
-    console.error('Error type:', error.constructor.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    console.error('Registration error:', error.message);
     res.status(500).json({ error: error.message || 'Error creating user' });
   }
-  console.log('=== REGISTRATION REQUEST END ===');
 });
 
 // Login
@@ -1234,10 +1231,7 @@ if (process.env.VERCEL !== '1') {
     console.log(`Supabase connected: ${process.env.SUPABASE_URL ? 'Yes' : 'No'}`);
   });
 } else {
-  console.log('Running in Vercel serverless mode');
-  console.log('Supabase URL:', process.env.SUPABASE_URL ? 'Set' : 'NOT SET');
-  console.log('Supabase Key:', process.env.SUPABASE_ANON_KEY ? 'Set' : 'NOT SET');
-  console.log('JWT Secret:', process.env.JWT_SECRET ? 'Set' : 'NOT SET');
+  // Vercel serverless mode - no server startup needed
 }
 
 // Export app for Vercel serverless functions
