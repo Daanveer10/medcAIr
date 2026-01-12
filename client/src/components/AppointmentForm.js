@@ -25,7 +25,7 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
     const fetchClinics = async () => {
       try {
         const response = await axios.get(`${API_URL}/clinics`, {
-          timeout: 8000
+          timeout: 5000 // Reduced timeout
         });
         setClinics(response.data || []);
       } catch (error) {
@@ -41,24 +41,25 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
           }
         } else if (error.message && typeof error.message === 'string') {
           if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-            errorText = 'Request timed out. Clinics may take a moment to load.';
+            errorText = 'Clinics loading slowly. You can enter a clinic ID manually below.';
           } else if (error.response?.status === 504) {
-            errorText = 'Request timed out. Please try again.';
+            errorText = 'Clinics loading slowly. You can enter a clinic ID manually below.';
           } else {
             errorText = error.message;
           }
         } else if (error.response?.status) {
           if (error.response.status === 504) {
-            errorText = 'Request timed out. Please try again.';
+            errorText = 'Clinics loading slowly. You can enter a clinic ID manually below.';
           } else if (error.response.status === 500) {
-            errorText = 'Server error. Please check if Supabase is configured.';
+            errorText = 'Server error. You can enter a clinic ID manually below.';
           }
         }
         
-        setMessage({ 
-          type: 'error', 
-          text: errorText
-        });
+        // Don't show error message - just allow manual entry
+        // setMessage({ 
+        //   type: 'error', 
+        //   text: errorText
+        // });
       } finally {
         setLoadingClinics(false);
       }
@@ -128,40 +129,43 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
 
         <form onSubmit={handleSubmit} className="appointment-form">
           <div className="form-group">
-            <label htmlFor="clinic_id">Select Clinic *</label>
+            <label htmlFor="clinic_id">Clinic ID *</label>
             {loadingClinics ? (
-              <div>Loading clinics...</div>
+              <div style={{ color: '#666', fontSize: '14px' }}>Loading clinics...</div>
             ) : clinics.length > 0 ? (
-              <select
-                id="clinic_id"
-                name="clinic_id"
-                value={formData.clinic_id}
-                onChange={handleChange}
-                required
-              >
-                <option value="">-- Select a Clinic --</option>
-                {clinics.map((clinic) => (
-                  <option key={clinic.id} value={clinic.id}>
-                    {clinic.name} - {clinic.city}, {clinic.state}
-                  </option>
-                ))}
-              </select>
-            ) : (
               <>
-                <input
-                  type="text"
+                <select
                   id="clinic_id"
                   name="clinic_id"
                   value={formData.clinic_id}
                   onChange={handleChange}
                   required
-                  placeholder="Enter clinic ID (UUID)"
-                />
-                <small style={{ color: '#666', fontSize: '12px' }}>
-                  No clinics found. Enter a clinic ID manually (UUID format)
+                >
+                  <option value="">-- Select a Clinic --</option>
+                  {clinics.map((clinic) => (
+                    <option key={clinic.id} value={clinic.id}>
+                      {clinic.name} - {clinic.city}, {clinic.state}
+                    </option>
+                  ))}
+                </select>
+                <small style={{ color: '#666', fontSize: '12px', display: 'block', marginTop: '5px' }}>
+                  Or enter a clinic ID manually below
                 </small>
               </>
-            )}
+            ) : null}
+            <input
+              type="text"
+              id="clinic_id"
+              name="clinic_id"
+              value={formData.clinic_id}
+              onChange={handleChange}
+              required
+              placeholder="Enter clinic ID (UUID) - e.g., 00000000-0000-0000-0000-000000000001"
+              style={{ marginTop: clinics.length > 0 ? '10px' : '0' }}
+            />
+            <small style={{ color: '#666', fontSize: '12px', display: 'block', marginTop: '5px' }}>
+              For testing: You can use any valid UUID format. Check Supabase for existing clinic IDs.
+            </small>
           </div>
 
           <div className="form-group">

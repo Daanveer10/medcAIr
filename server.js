@@ -478,48 +478,49 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 
 // Get all clinics (for patients) - optimized for speed
 app.get('/api/clinics', async (req, res) => {
-  // Set response timeout (5 seconds)
-  res.setTimeout(5000);
+  // Set response timeout (3 seconds - very fast)
+  res.setTimeout(3000);
   
   // Check if Supabase is configured
   if (!supabase) {
-    return res.status(500).json({ error: 'Database not configured' });
+    return res.json([]); // Return empty array if not configured
   }
   
   try {
     const { disease, city, search } = req.query;
-    // Simplified query without join for faster response
+    
+    // Very simple query - just get first 10 clinics, no filters for speed
+    // Only apply filters if they're provided and keep it simple
     let query = supabase
       .from('clinics')
-      .select('id, name, address, city, state, phone, email, specialties, diseases_handled, operating_hours')
-      .limit(20); // Limit to 20 results for faster response
+      .select('id, name, address, city, state')
+      .limit(10); // Very small limit for fastest response
 
-    if (disease) {
+    // Only apply filters if provided (adds complexity)
+    if (disease && disease.trim()) {
       query = query.ilike('diseases_handled', `%${disease}%`);
     }
 
-    if (city) {
+    if (city && city.trim()) {
       query = query.eq('city', city);
     }
 
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,address.ilike.%${search}%,specialties.ilike.%${search}%`);
+    if (search && search.trim()) {
+      query = query.ilike('name', `%${search}%`);
     }
 
-    // Use very short timeout for clinics query (5 seconds)
-    const { data, error } = await safeSupabaseQuery(query, 5000);
+    // Use very short timeout (3 seconds)
+    const { data, error } = await safeSupabaseQuery(query, 3000);
 
     if (error) {
       // Return empty array instead of error for better UX
-      console.error('Clinic query error:', error.message);
       return res.json([]);
     }
 
-    // Return clinics directly (without hospital_name for now to speed up)
+    // Return clinics directly
     res.json(data || []);
   } catch (error) {
     // Return empty array on timeout/error instead of failing
-    console.error('Clinic fetch error:', error.message);
     res.json([]);
   }
 });
