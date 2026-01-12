@@ -8,10 +8,16 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY;
 let supabase = null;
 
 if (supabaseUrl && supabaseKey) {
-  console.log('Initializing Supabase client...');
-  console.log('Supabase URL:', supabaseUrl.substring(0, 30) + '...');
-  supabase = createClient(supabaseUrl, supabaseKey);
-  console.log('Supabase client created successfully');
+  try {
+    console.log('Initializing Supabase client...');
+    console.log('Supabase URL:', supabaseUrl.substring(0, 30) + '...');
+    supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('Supabase client created successfully');
+  } catch (error) {
+    console.error('Error creating Supabase client:', error);
+    supabase = createClient('https://placeholder.supabase.co', 'placeholder-key');
+    console.warn('Using placeholder Supabase client due to error');
+  }
 } else {
   console.error('Missing Supabase environment variables!');
   console.error('SUPABASE_URL:', supabaseUrl ? 'Set' : 'NOT SET');

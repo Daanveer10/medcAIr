@@ -1233,6 +1233,11 @@ if (process.env.VERCEL !== '1') {
     console.log(`Server running on port ${PORT}`);
     console.log(`Supabase connected: ${process.env.SUPABASE_URL ? 'Yes' : 'No'}`);
   });
+} else {
+  console.log('Running in Vercel serverless mode');
+  console.log('Supabase URL:', process.env.SUPABASE_URL ? 'Set' : 'NOT SET');
+  console.log('Supabase Key:', process.env.SUPABASE_ANON_KEY ? 'Set' : 'NOT SET');
+  console.log('JWT Secret:', process.env.JWT_SECRET ? 'Set' : 'NOT SET');
 }
 
 // Export app for Vercel serverless functions
