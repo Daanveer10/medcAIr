@@ -178,18 +178,29 @@ if (process.env.VERCEL !== '1') {
 
 // Register
 app.post('/api/auth/register', async (req, res) => {
+  console.log('Registration request received:', { email: req.body.email, name: req.body.name, role: req.body.role });
+  
   const { email, password, name, role, phone } = req.body;
 
   if (!email || !password || !name || !role) {
+    console.log('Missing required fields');
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   if (!['patient', 'hospital'].includes(role)) {
+    console.log('Invalid role:', role);
     return res.status(400).json({ error: 'Invalid role. Must be patient or hospital' });
+  }
+
+  // Check if Supabase is configured
+  if (!supabase || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    console.error('Supabase not configured!');
+    return res.status(500).json({ error: 'Database not configured. Please check environment variables.' });
   }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
+    console.log('Password hashed, inserting into Supabase...');
 
     const { data, error } = await supabase
       .from('users')
@@ -204,12 +215,19 @@ app.post('/api/auth/register', async (req, res) => {
       .single();
 
     if (error) {
+      console.error('Supabase error during registration:', error);
       if (error.code === '23505') { // Unique constraint violation
         return res.status(400).json({ error: 'Email already registered' });
       }
-      return res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: error.message || 'Database error occurred' });
     }
 
+    if (!data) {
+      console.error('No data returned from Supabase');
+      return res.status(500).json({ error: 'User created but data not returned' });
+    }
+
+    console.log('User created successfully:', data.id);
     const token = jwt.sign(
       { id: data.id, email: data.email, role: data.role, name: data.name },
       JWT_SECRET,
@@ -221,7 +239,8 @@ app.post('/api/auth/register', async (req, res) => {
       user: { id: data.id, email: data.email, name: data.name, role: data.role, phone: data.phone }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Error creating user' });
+    console.error('Unexpected error during registration:', error);
+    res.status(500).json({ error: error.message || 'Error creating user' });
   }
 });
 

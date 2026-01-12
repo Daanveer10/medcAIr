@@ -44,6 +44,9 @@ const Signup = ({ onSignup }) => {
 
     try {
       const { confirmPassword, ...signupData } = formData;
+      console.log('Signing up with:', { ...signupData, password: '***' });
+      console.log('API URL:', `${API_URL}/auth/register`);
+      
       const response = await axios.post(`${API_URL}/auth/register`, signupData);
       const { token, user } = response.data;
       
@@ -60,7 +63,26 @@ const Signup = ({ onSignup }) => {
         navigate('/hospital');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Sign up failed. Please try again.');
+      console.error('Signup error:', err);
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        url: err.config?.url
+      });
+      
+      let errorMessage = 'Sign up failed. Please try again.';
+      if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message === 'Network Error' || err.code === 'ERR_NETWORK') {
+        errorMessage = 'Cannot connect to server. Please check if the backend is running.';
+      } else if (err.response?.status === 404) {
+        errorMessage = 'API endpoint not found. Please check the server configuration.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
