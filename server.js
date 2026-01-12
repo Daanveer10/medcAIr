@@ -7,6 +7,30 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const supabase = require('./db/supabase');
 
+// Timeout helper for Supabase queries (10 seconds default)
+function withTimeout(promise, timeoutMs = 10000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Database operation timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
+
+// Wrapper for Supabase queries with timeout and error handling
+async function safeSupabaseQuery(queryPromise, timeoutMs = 10000) {
+  try {
+    const result = await withTimeout(queryPromise, timeoutMs);
+    return result;
+  } catch (error) {
+    if (error.message && error.message.includes('timed out')) {
+      console.error('Supabase query timeout:', error.message);
+      throw new Error('Database request timed out. Please try again.');
+    }
+    throw error;
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'medcair-secret-key-change-in-production';
@@ -17,7 +41,21 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+
+// Global error handler for timeout and database errors
+app.use((err, req, res, next) => {
+  if (err.message && err.message.includes('timed out')) {
+    console.error('Request timeout:', req.path, err.message);
+    return res.status(504).json({ error: 'Request timed out. Please try again.' });
+  }
+  if (err.message && (err.message.includes('Database') || err.message.includes('Supabase'))) {
+    console.error('Database error:', req.path, err.message);
+    return res.status(503).json({ error: 'Database service temporarily unavailable. Please try again.' });
+  }
+  console.error('Unhandled error:', req.path, err.message);
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
 // Only serve static files in non-Vercel mode
 if (process.env.VERCEL !== '1') {
   app.use(express.static(path.join(__dirname, 'client/build')));
@@ -36,8 +74,49 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     supabase_configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
-    jwt_configured: !!process.env.JWT_SECRET
+    jwt_configured: !!process.env.JWT_SECRET,
+    supabase_client: supabase ? 'initialized' : 'not initialized'
   });
+});
+
+// Test Supabase connection endpoint
+app.get('/api/test-db', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ 
+      error: 'Supabase client not initialized',
+      env_check: {
+        SUPABASE_URL: process.env.SUPABASE_URL ? 'Set' : 'NOT SET',
+        SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'Set' : 'NOT SET'
+      }
+    });
+  }
+
+  try {
+    // Try a simple query to test connection
+    const { data, error } = await safeSupabaseQuery(
+      supabase.from('users').select('count', { count: 'exact', head: true }),
+      5000
+    );
+
+    if (error) {
+      return res.status(500).json({
+        error: 'Database connection test failed',
+        details: error.message,
+        hint: error.hint || 'Check your Supabase configuration and RLS policies'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      message: 'Database connection successful',
+      user_count: data?.length || 0
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Database connection test failed',
+      message: error.message
+    });
+  }
 });
 
 // Test endpoint to verify routing
@@ -209,11 +288,14 @@ async function initializeSampleData() {
 }
 
 // Initialize on startup (only in non-Vercel mode, and don't block)
-if (process.env.VERCEL !== '1') {
-  // Don't await - let it run in background
-  initializeSampleData().catch(err => {
-    console.error('Error initializing sample data:', err);
-  });
+// NEVER run on Vercel - it can cause timeouts
+if (process.env.VERCEL !== '1' && process.env.VERCEL_ENV !== 'production') {
+  // Don't await - let it run in background with timeout
+  setTimeout(() => {
+    initializeSampleData().catch(err => {
+      console.error('Error initializing sample data:', err);
+    });
+  }, 1000); // Delay by 1 second to ensure server is ready
 }
 
 // ==================== AUTHENTICATION ROUTES ====================
@@ -235,6 +317,8 @@ app.post('/api/auth/register', async (req, res) => {
   // Check if Supabase is configured
   if (!supabase) {
     console.error('Supabase client not available!');
+    console.error('SUPABASE_URL:', process.env.SUPABASE_URL ? 'Set' : 'NOT SET');
+    console.error('SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY ? 'Set' : 'NOT SET');
     return res.status(500).json({ error: 'Database not configured. Please check environment variables.' });
   }
 
@@ -242,39 +326,61 @@ app.post('/api/auth/register', async (req, res) => {
     console.log('Hashing password...');
     const hashedPassword = await bcrypt.hash(password, 10);
     console.log('Password hashed, inserting into Supabase...');
-    console.log('Supabase client:', supabase ? 'Available' : 'NULL');
     console.log('Insert data:', { email, name, role, phone: phone || null, password: '***' });
 
-    const { data, error } = await supabase
+    // Create the query first
+    const insertQuery = supabase
       .from('users')
       .insert({
-        email,
+        email: email.toLowerCase().trim(),
         password: hashedPassword,
-        name,
-        role,
-        phone: phone || null
+        name: name.trim(),
+        role: role,
+        phone: phone ? phone.trim() : null
       })
       .select()
       .single();
+
+    // Execute with timeout
+    const result = await safeSupabaseQuery(insertQuery, 15000);
     
-    console.log('Supabase response - data:', data ? 'Received' : 'NULL');
+    const { data, error } = result;
+    
+    console.log('Supabase response - data:', data ? `Received (id: ${data.id})` : 'NULL');
     console.log('Supabase response - error:', error ? JSON.stringify(error, null, 2) : 'None');
 
     if (error) {
-      console.error('Supabase error:', error);
-      if (error.code === '23505' || error.message?.includes('duplicate')) {
+      console.error('Supabase error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      
+      if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique')) {
         return res.status(400).json({ error: 'Email already registered' });
       }
-      if (error.message?.includes('permission denied') || error.message?.includes('RLS')) {
-        return res.status(500).json({ error: 'Database permission error. Please check Row Level Security policies.' });
+      if (error.message?.includes('permission denied') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
+        return res.status(500).json({ 
+          error: 'Database permission error. Please check Row Level Security policies. You may need to disable RLS or update policies to allow public registration.' 
+        });
       }
-      return res.status(500).json({ error: error.message || 'Database error occurred' });
+      if (error.code === 'PGRST116') {
+        return res.status(500).json({ error: 'Database connection error. Please check your Supabase configuration.' });
+      }
+      return res.status(500).json({ 
+        error: error.message || 'Database error occurred',
+        details: error.details || null
+      });
     }
 
     if (!data) {
-      console.error('No data returned from Supabase');
-      return res.status(500).json({ error: 'User created but data not returned' });
+      console.error('No data returned from Supabase - user may not have been created');
+      return res.status(500).json({ error: 'User creation failed. No data returned from database.' });
     }
+
+    console.log('User created successfully:', { id: data.id, email: data.email, role: data.role });
+    
     const token = jwt.sign(
       { id: data.id, email: data.email, role: data.role, name: data.name },
       JWT_SECRET,
@@ -283,11 +389,27 @@ app.post('/api/auth/register', async (req, res) => {
 
     res.json({
       token,
-      user: { id: data.id, email: data.email, name: data.name, role: data.role, phone: data.phone }
+      user: { 
+        id: data.id, 
+        email: data.email, 
+        name: data.name, 
+        role: data.role, 
+        phone: data.phone || null
+      }
     });
   } catch (error) {
-    console.error('Registration error:', error.message);
-    res.status(500).json({ error: error.message || 'Error creating user' });
+    console.error('Registration error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Handle timeout errors
+    if (error.message && error.message.includes('timed out')) {
+      return res.status(504).json({ error: 'Registration request timed out. Please try again.' });
+    }
+    
+    res.status(500).json({ 
+      error: error.message || 'Error creating user',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -299,14 +421,29 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ error: 'Email and password required' });
   }
 
+  // Check if Supabase is configured
+  if (!supabase) {
+    console.error('Supabase client not available for login!');
+    return res.status(500).json({ error: 'Database not configured. Please check environment variables.' });
+  }
+
   try {
-    const { data: user, error } = await supabase
+    const loginQuery = supabase
       .from('users')
       .select('*')
-      .eq('email', email)
+      .eq('email', email.toLowerCase().trim())
       .single();
 
-    if (error || !user) {
+    const result = await safeSupabaseQuery(loginQuery, 15000);
+    const { data: user, error } = result;
+
+    if (error) {
+      console.error('Login query error:', error);
+      // Don't reveal if email exists or not for security
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -321,6 +458,8 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    console.log('Login successful:', { id: user.id, email: user.email, role: user.role });
+
     res.json({
       token,
       user: {
@@ -328,22 +467,30 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        phone: user.phone
+        phone: user.phone || null
       }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Error during login' });
+    console.error('Login error:', error);
+    
+    if (error.message && error.message.includes('timed out')) {
+      return res.status(504).json({ error: 'Login request timed out. Please try again.' });
+    }
+    
+    res.status(500).json({ error: 'Error during login. Please try again.' });
   }
 });
 
 // Get current user
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, email, name, role, phone')
-      .eq('id', req.user.id)
-      .single();
+    const { data: user, error } = await safeSupabaseQuery(
+      supabase
+        .from('users')
+        .select('id, email, name, role, phone')
+        .eq('id', req.user.id)
+        .single()
+    );
 
     if (error || !user) {
       return res.status(404).json({ error: 'User not found' });
@@ -380,7 +527,7 @@ app.get('/api/clinics', async (req, res) => {
       query = query.or(`name.ilike.%${search}%,address.ilike.%${search}%,specialties.ilike.%${search}%`);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await safeSupabaseQuery(query);
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -402,14 +549,16 @@ app.get('/api/clinics', async (req, res) => {
 app.get('/api/clinics/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { data, error } = await supabase
-      .from('clinics')
-      .select(`
-        *,
-        users!inner(name)
-      `)
-      .eq('id', id)
-      .single();
+    const { data, error } = await safeSupabaseQuery(
+      supabase
+        .from('clinics')
+        .select(`
+          *,
+          users!inner(name)
+        `)
+        .eq('id', id)
+        .single()
+    );
 
     if (error || !data) {
       return res.status(404).json({ error: 'Clinic not found' });
@@ -445,19 +594,25 @@ app.get('/api/clinics/:id/slots', async (req, res) => {
 
     query = query.order('date', { ascending: true }).order('time', { ascending: true });
 
-    const { data: slots, error: slotsError } = await query;
+    const { data: slots, error: slotsError } = await safeSupabaseQuery(query);
 
     if (slotsError) {
       return res.status(500).json({ error: slotsError.message });
     }
 
     // Check which slots are booked
-    const slotIds = slots.map(s => s.id);
-    const { data: appointments } = await supabase
-      .from('appointments')
-      .select('slot_id, patient_name')
-      .in('slot_id', slotIds)
-      .eq('status', 'scheduled');
+    const slotIds = slots?.map(s => s.id) || [];
+    if (slotIds.length === 0) {
+      return res.json([]);
+    }
+    
+    const { data: appointments } = await safeSupabaseQuery(
+      supabase
+        .from('appointments')
+        .select('slot_id, patient_name')
+        .in('slot_id', slotIds)
+        .eq('status', 'scheduled')
+    );
 
     const bookedSlotIds = new Set(appointments?.map(a => a.slot_id) || []);
     const bookedByMap = {};
@@ -668,48 +823,54 @@ app.post('/api/appointments', authenticateToken, async (req, res) => {
   try {
     // Check if slot is available
     if (slot_id) {
-      const { data: slot, error: slotError } = await supabase
-        .from('slots')
-        .select('id, is_available')
-        .eq('id', slot_id)
-        .single();
+      const { data: slot, error: slotError } = await safeSupabaseQuery(
+        supabase
+          .from('slots')
+          .select('id, is_available')
+          .eq('id', slot_id)
+          .single()
+      );
 
       if (slotError || !slot) {
         return res.status(400).json({ error: 'Invalid slot' });
       }
 
-      const { data: existingAppointment } = await supabase
-        .from('appointments')
-        .select('id')
-        .eq('slot_id', slot_id)
-        .eq('appointment_date', appointment_date)
-        .eq('appointment_time', appointment_time)
-        .eq('status', 'scheduled')
-        .single();
+      const { data: existingAppointment } = await safeSupabaseQuery(
+        supabase
+          .from('appointments')
+          .select('id')
+          .eq('slot_id', slot_id)
+          .eq('appointment_date', appointment_date)
+          .eq('appointment_time', appointment_time)
+          .eq('status', 'scheduled')
+          .single()
+      );
 
       if (existingAppointment) {
         return res.status(400).json({ error: 'Slot already booked' });
       }
     }
 
-    const { data, error } = await supabase
-      .from('appointments')
-      .insert({
-        patient_id,
-        clinic_id,
-        patient_name,
-        patient_phone,
-        patient_email: patient_email || null,
-        appointment_date,
-        appointment_time,
-        slot_id: slot_id || null,
-        reason: reason || '',
-        disease: disease || '',
-        doctor_name: doctor_name || null,
-        status: 'scheduled'
-      })
-      .select()
-      .single();
+    const { data, error } = await safeSupabaseQuery(
+      supabase
+        .from('appointments')
+        .insert({
+          patient_id,
+          clinic_id,
+          patient_name,
+          patient_phone,
+          patient_email: patient_email || null,
+          appointment_date,
+          appointment_time,
+          slot_id: slot_id || null,
+          reason: reason || '',
+          disease: disease || '',
+          doctor_name: doctor_name || null,
+          status: 'scheduled'
+        })
+        .select()
+        .single()
+    );
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -717,10 +878,12 @@ app.post('/api/appointments', authenticateToken, async (req, res) => {
 
     // Mark slot as unavailable if slot_id provided
     if (slot_id) {
-      await supabase
-        .from('slots')
-        .update({ is_available: false })
-        .eq('id', slot_id);
+      await safeSupabaseQuery(
+        supabase
+          .from('slots')
+          .update({ is_available: false })
+          .eq('id', slot_id)
+      ).catch(err => console.error('Error updating slot:', err));
     }
 
     res.json({ id: data.id, message: 'Appointment booked successfully' });
