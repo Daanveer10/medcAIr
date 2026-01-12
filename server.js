@@ -32,13 +32,32 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    timestamp: new Date().toISOString(),
     supabase: {
       configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
-      url: process.env.SUPABASE_URL ? 'Set' : 'Not set'
+      url: process.env.SUPABASE_URL ? 'Set' : 'Not set',
+      key: process.env.SUPABASE_ANON_KEY ? 'Set' : 'Not set'
     },
     jwt: {
       configured: !!process.env.JWT_SECRET
-    }
+    },
+    environment: process.env.NODE_ENV || 'development',
+    vercel: process.env.VERCEL === '1' ? 'Yes' : 'No'
+  });
+});
+
+// Test endpoint to verify routing
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'API is working!', path: req.path, method: req.method });
+});
+
+// Test POST endpoint
+app.post('/api/test', (req, res) => {
+  res.json({ 
+    message: 'POST is working!', 
+    body: req.body,
+    path: req.path, 
+    method: req.method 
   });
 });
 
@@ -266,14 +285,23 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    console.log('=== REGISTRATION SUCCESS ===');
+    console.log('User ID:', data.id);
+    console.log('User email:', data.email);
+    
     res.json({
       token,
       user: { id: data.id, email: data.email, name: data.name, role: data.role, phone: data.phone }
     });
   } catch (error) {
-    console.error('Unexpected error during registration:', error);
+    console.error('=== REGISTRATION ERROR ===');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     res.status(500).json({ error: error.message || 'Error creating user' });
   }
+  console.log('=== REGISTRATION REQUEST END ===');
 });
 
 // Login
