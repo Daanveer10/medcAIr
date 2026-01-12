@@ -481,6 +481,11 @@ app.get('/api/clinics', async (req, res) => {
   // Set response timeout (5 seconds)
   res.setTimeout(5000);
   
+  // Check if Supabase is configured
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  
   try {
     const { disease, city, search } = req.query;
     // Simplified query without join for faster response
@@ -880,6 +885,11 @@ app.post('/api/appointments', async (req, res) => {
 app.get('/api/patient/appointments', async (req, res) => {
   // Set response timeout (5 seconds)
   res.setTimeout(5000);
+  
+  // Check if Supabase is configured
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not configured' });
+  }
   
   try {
     // Try to get user from token if available

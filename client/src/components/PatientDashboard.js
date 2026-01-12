@@ -26,7 +26,15 @@ const PatientDashboard = ({ user, onLogout }) => {
       });
       setAppointments(response.data || []);
     } catch (error) {
-      console.error('Error fetching appointments:', error);
+      // Silently handle error - set empty array to prevent crashes
+      // Don't log full error object to prevent React errors
+      if (error.response?.status === 504) {
+        console.error('Appointments request timed out');
+      } else if (error.code === 'ECONNABORTED') {
+        console.error('Appointments request timed out');
+      } else {
+        console.error('Error fetching appointments:', error.message || 'Unknown error');
+      }
       // Set empty array on error to prevent crashes
       setAppointments([]);
     } finally {

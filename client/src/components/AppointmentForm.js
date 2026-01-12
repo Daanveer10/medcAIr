@@ -29,14 +29,35 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
         });
         setClinics(response.data || []);
       } catch (error) {
-        console.error('Error fetching clinics:', error);
         // Extract error message safely (never pass object to setMessage)
-        const errorText = error.response?.data?.error || 
-                         error.message || 
-                         'Could not load clinics. You can still enter a clinic ID manually.';
+        let errorText = 'Could not load clinics. You can still enter a clinic ID manually.';
+        
+        if (error.response?.data?.error) {
+          const errorData = error.response.data.error;
+          if (typeof errorData === 'string') {
+            errorText = errorData;
+          } else if (typeof errorData === 'object' && errorData.message) {
+            errorText = String(errorData.message);
+          }
+        } else if (error.message && typeof error.message === 'string') {
+          if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            errorText = 'Request timed out. Clinics may take a moment to load.';
+          } else if (error.response?.status === 504) {
+            errorText = 'Request timed out. Please try again.';
+          } else {
+            errorText = error.message;
+          }
+        } else if (error.response?.status) {
+          if (error.response.status === 504) {
+            errorText = 'Request timed out. Please try again.';
+          } else if (error.response.status === 500) {
+            errorText = 'Server error. Please check if Supabase is configured.';
+          }
+        }
+        
         setMessage({ 
           type: 'error', 
-          text: typeof errorText === 'string' ? errorText : 'Could not load clinics. You can still enter a clinic ID manually.'
+          text: errorText
         });
       } finally {
         setLoadingClinics(false);
