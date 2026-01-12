@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './HospitalDashboard.css';
 import axios from 'axios';
 import { format, parseISO } from 'date-fns';
@@ -14,20 +14,11 @@ const HospitalDashboard = ({ user, onLogout }) => {
   const [appointments, setAppointments] = useState([]);
   const [followups, setFollowups] = useState([]);
   const [stats, setStats] = useState({ total: 0, today: 0, followups: 0, pending: 0 });
-  const [loading, setLoading] = useState(true);
   const [clinics, setClinics] = useState([]);
   const [selectedClinic, setSelectedClinic] = useState(null);
 
-  useEffect(() => {
-    if (user?.id) {
-      fetchData();
-      fetchClinics();
-    }
-  }, [user]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      setLoading(true);
       const token = localStorage.getItem('token');
       const [apptsRes, followupsRes, statsRes] = await Promise.all([
         axios.get(`${API_URL}/hospital/appointments`, {
@@ -45,12 +36,10 @@ const HospitalDashboard = ({ user, onLogout }) => {
       setStats(statsRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchClinics = async () => {
+  const fetchClinics = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_URL}/hospital/clinics`, {
@@ -63,7 +52,15 @@ const HospitalDashboard = ({ user, onLogout }) => {
     } catch (error) {
       console.error('Error fetching clinics:', error);
     }
-  };
+  }, [selectedClinic]);
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchData();
+      fetchClinics();
+    }
+  }, [user, fetchData, fetchClinics]);
+
 
   const handleAppointmentCreated = () => {
     fetchData();
@@ -113,10 +110,6 @@ const HospitalDashboard = ({ user, onLogout }) => {
       console.error('Error scheduling follow-up:', error);
       alert('Failed to schedule follow-up');
     }
-  };
-
-  const handleSlotManagement = () => {
-    setActiveTab('slots');
   };
 
   return (
@@ -215,13 +208,7 @@ const SlotManagement = ({ clinics, selectedClinic, onSelectClinic }) => {
     duration: 30
   });
 
-  useEffect(() => {
-    if (selectedClinic?.id) {
-      fetchSlots();
-    }
-  }, [selectedClinic, selectedDate]);
-
-  const fetchSlots = async () => {
+  const fetchSlots = useCallback(async () => {
     if (!selectedClinic?.id) return;
     
     setLoading(true);
@@ -241,7 +228,13 @@ const SlotManagement = ({ clinics, selectedClinic, onSelectClinic }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedClinic?.id, selectedDate]);
+
+  useEffect(() => {
+    if (selectedClinic?.id) {
+      fetchSlots();
+    }
+  }, [selectedClinic, selectedDate, fetchSlots]);
 
   const handleCreateSlot = async (e) => {
     e.preventDefault();

@@ -20,7 +20,6 @@ function App() {
 
     if (token && savedUser) {
       try {
-        const userData = JSON.parse(savedUser);
         // Verify token by making a request
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         axios.get(`${API_URL}/auth/me`)

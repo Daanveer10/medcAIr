@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './PatientDashboard.css';
 import axios from 'axios';
 import { format, parseISO } from 'date-fns';
@@ -324,11 +324,7 @@ const ClinicDetail = ({ clinic, onClose, onBookingSuccess }) => {
     disease: ''
   });
 
-  useEffect(() => {
-    fetchSlots(selectedDate);
-  }, [clinic.id, selectedDate]);
-
-  const fetchSlots = async (date) => {
+  const fetchSlots = useCallback(async (date) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -342,7 +338,11 @@ const ClinicDetail = ({ clinic, onClose, onBookingSuccess }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clinic.id]);
+
+  useEffect(() => {
+    fetchSlots(selectedDate);
+  }, [clinic.id, selectedDate, fetchSlots]);
 
   const handleBooking = async (e) => {
     e.preventDefault();
@@ -350,7 +350,6 @@ const ClinicDetail = ({ clinic, onClose, onBookingSuccess }) => {
 
     try {
       const token = localStorage.getItem('token');
-      const user = JSON.parse(localStorage.getItem('user'));
       await axios.post(
         `${API_URL}/appointments`,
         {
