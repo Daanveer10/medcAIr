@@ -48,6 +48,7 @@ const Signup = ({ onSignup }) => {
       console.log('API URL:', `${API_URL}/auth/register`);
       
       const response = await axios.post(`${API_URL}/auth/register`, signupData);
+      console.log('Registration response received:', response.status, response.data);
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);
