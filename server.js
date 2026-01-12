@@ -5,8 +5,7 @@ const path = require('path');
 const { format, parseISO, addDays } = require('date-fns');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const getSupabase = require('./db/supabase');
-const supabase = getSupabase();
+const supabase = require('./db/supabase');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
