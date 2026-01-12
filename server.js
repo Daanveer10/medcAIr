@@ -7,8 +7,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const supabase = require('./db/supabase');
 
-// Timeout helper for Supabase queries (10 seconds default)
-function withTimeout(promise, timeoutMs = 10000) {
+// Timeout helper for Supabase queries (8 seconds default for faster response)
+function withTimeout(promise, timeoutMs = 8000) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
@@ -18,7 +18,7 @@ function withTimeout(promise, timeoutMs = 10000) {
 }
 
 // Wrapper for Supabase queries with timeout and error handling
-async function safeSupabaseQuery(queryPromise, timeoutMs = 10000) {
+async function safeSupabaseQuery(queryPromise, timeoutMs = 8000) {
   try {
     const result = await withTimeout(queryPromise, timeoutMs);
     return result;
@@ -43,31 +43,20 @@ app.use(cors({
 }));
 app.use(bodyParser.json({ limit: '10mb' }));
 
-// Global error handler for timeout and database errors
-app.use((err, req, res, next) => {
-  if (err.message && err.message.includes('timed out')) {
-    console.error('Request timeout:', req.path, err.message);
-    return res.status(504).json({ error: 'Request timed out. Please try again.' });
-  }
-  if (err.message && (err.message.includes('Database') || err.message.includes('Supabase'))) {
-    console.error('Database error:', req.path, err.message);
-    return res.status(503).json({ error: 'Database service temporarily unavailable. Please try again.' });
-  }
-  console.error('Unhandled error:', req.path, err.message);
-  res.status(500).json({ error: err.message || 'Internal server error' });
-});
 // Only serve static files in non-Vercel mode
 if (process.env.VERCEL !== '1') {
   app.use(express.static(path.join(__dirname, 'client/build')));
 }
 
-// Request logging middleware
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  }
-  next();
-});
+// Request logging middleware (only in development, not on Vercel)
+if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    }
+    next();
+  });
+}
 
 // Health check endpoint - must respond immediately
 app.get('/api/health', (req, res) => {
@@ -92,7 +81,7 @@ app.get('/api/test-db', async (req, res) => {
   }
 
   try {
-    // Try a simple query to test connection
+    // Try a simple query to test connection (5 second timeout)
     const { data, error } = await safeSupabaseQuery(
       supabase.from('users').select('count', { count: 'exact', head: true }),
       5000
@@ -287,23 +276,21 @@ async function initializeSampleData() {
   }
 }
 
-// Initialize on startup (only in non-Vercel mode, and don't block)
-// NEVER run on Vercel - it can cause timeouts
-if (process.env.VERCEL !== '1' && process.env.VERCEL_ENV !== 'production') {
+// Initialize on startup (ONLY in local development, NEVER on Vercel)
+// This function is completely disabled on Vercel to prevent timeouts
+if (process.env.VERCEL !== '1' && process.env.VERCEL_ENV !== 'production' && !process.env.VERCEL) {
   // Don't await - let it run in background with timeout
   setTimeout(() => {
     initializeSampleData().catch(err => {
       console.error('Error initializing sample data:', err);
     });
-  }, 1000); // Delay by 1 second to ensure server is ready
+  }, 1000);
 }
 
 // ==================== AUTHENTICATION ROUTES ====================
 
 // Register
 app.post('/api/auth/register', async (req, res) => {
-  console.log('Registration request received:', { email: req.body.email, name: req.body.name, role: req.body.role });
-  
   const { email, password, name, role, phone } = req.body;
 
   if (!email || !password || !name || !role) {
@@ -316,17 +303,11 @@ app.post('/api/auth/register', async (req, res) => {
 
   // Check if Supabase is configured
   if (!supabase) {
-    console.error('Supabase client not available!');
-    console.error('SUPABASE_URL:', process.env.SUPABASE_URL ? 'Set' : 'NOT SET');
-    console.error('SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY ? 'Set' : 'NOT SET');
     return res.status(500).json({ error: 'Database not configured. Please check environment variables.' });
   }
 
   try {
-    console.log('Hashing password...');
     const hashedPassword = await bcrypt.hash(password, 10);
-    console.log('Password hashed, inserting into Supabase...');
-    console.log('Insert data:', { email, name, role, phone: phone || null, password: '***' });
 
     // Create the query first
     const insertQuery = supabase
@@ -341,45 +322,31 @@ app.post('/api/auth/register', async (req, res) => {
       .select()
       .single();
 
-    // Execute with timeout
-    const result = await safeSupabaseQuery(insertQuery, 15000);
+    // Execute with timeout (8 seconds for registration)
+    const result = await safeSupabaseQuery(insertQuery, 8000);
     
     const { data, error } = result;
-    
-    console.log('Supabase response - data:', data ? `Received (id: ${data.id})` : 'NULL');
-    console.log('Supabase response - error:', error ? JSON.stringify(error, null, 2) : 'None');
 
     if (error) {
-      console.error('Supabase error details:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
-      
       if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique')) {
         return res.status(400).json({ error: 'Email already registered' });
       }
       if (error.message?.includes('permission denied') || error.message?.includes('RLS') || error.message?.includes('row-level security')) {
         return res.status(500).json({ 
-          error: 'Database permission error. Please check Row Level Security policies. You may need to disable RLS or update policies to allow public registration.' 
+          error: 'Database permission error. Please check Row Level Security policies.' 
         });
       }
       if (error.code === 'PGRST116') {
         return res.status(500).json({ error: 'Database connection error. Please check your Supabase configuration.' });
       }
       return res.status(500).json({ 
-        error: error.message || 'Database error occurred',
-        details: error.details || null
+        error: error.message || 'Database error occurred'
       });
     }
 
     if (!data) {
-      console.error('No data returned from Supabase - user may not have been created');
       return res.status(500).json({ error: 'User creation failed. No data returned from database.' });
     }
-
-    console.log('User created successfully:', { id: data.id, email: data.email, role: data.role });
     
     const token = jwt.sign(
       { id: data.id, email: data.email, role: data.role, name: data.name },
@@ -398,17 +365,13 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Registration error:', error);
-    console.error('Error stack:', error.stack);
-    
     // Handle timeout errors
     if (error.message && error.message.includes('timed out')) {
       return res.status(504).json({ error: 'Registration request timed out. Please try again.' });
     }
     
     res.status(500).json({ 
-      error: error.message || 'Error creating user',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message || 'Error creating user'
     });
   }
 });
@@ -423,7 +386,6 @@ app.post('/api/auth/login', async (req, res) => {
 
   // Check if Supabase is configured
   if (!supabase) {
-    console.error('Supabase client not available for login!');
     return res.status(500).json({ error: 'Database not configured. Please check environment variables.' });
   }
 
@@ -434,16 +396,10 @@ app.post('/api/auth/login', async (req, res) => {
       .eq('email', email.toLowerCase().trim())
       .single();
 
-    const result = await safeSupabaseQuery(loginQuery, 15000);
+    const result = await safeSupabaseQuery(loginQuery, 8000);
     const { data: user, error } = result;
 
-    if (error) {
-      console.error('Login query error:', error);
-      // Don't reveal if email exists or not for security
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -458,8 +414,6 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('Login successful:', { id: user.id, email: user.email, role: user.role });
-
     res.json({
       token,
       user: {
@@ -471,8 +425,6 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    
     if (error.message && error.message.includes('timed out')) {
       return res.status(504).json({ error: 'Login request timed out. Please try again.' });
     }
@@ -1378,13 +1330,30 @@ if (process.env.VERCEL !== '1') {
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   });
+}
 
+// Global error handler - MUST be after all routes
+app.use((err, req, res, next) => {
+  if (err.message && err.message.includes('timed out')) {
+    return res.status(504).json({ error: 'Request timed out. Please try again.' });
+  }
+  if (err.message && (err.message.includes('Database') || err.message.includes('Supabase'))) {
+    return res.status(503).json({ error: 'Database service temporarily unavailable. Please try again.' });
+  }
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
+// 404 handler for API routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
+// Start server (only in non-Vercel mode)
+if (process.env.VERCEL !== '1') {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Supabase connected: ${process.env.SUPABASE_URL ? 'Yes' : 'No'}`);
   });
-} else {
-  // Vercel serverless mode - no server startup needed
 }
 
 // Export app for Vercel serverless functions
