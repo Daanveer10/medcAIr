@@ -3,9 +3,10 @@ import './PatientDashboard.css';
 import axios from 'axios';
 import { format, parseISO } from 'date-fns';
 import { API_URL } from '../config/api';
+import AppointmentForm from './AppointmentForm';
 
 const PatientDashboard = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('search');
+  const [activeTab, setActiveTab] = useState('create');
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -62,6 +63,12 @@ const PatientDashboard = ({ user, onLogout }) => {
         </div>
         <nav className="nav-tabs">
           <button
+            className={`nav-tab ${activeTab === 'create' ? 'active' : ''}`}
+            onClick={() => setActiveTab('create')}
+          >
+            ➕ Create Appointment
+          </button>
+          <button
             className={`nav-tab ${activeTab === 'search' ? 'active' : ''}`}
             onClick={() => setActiveTab('search')}
           >
@@ -77,6 +84,15 @@ const PatientDashboard = ({ user, onLogout }) => {
       </header>
 
       <main className="patient-main">
+        {activeTab === 'create' && (
+          <div className="create-appointment-section">
+            <h2>Create New Appointment</h2>
+            <p style={{ marginBottom: '20px', color: '#666' }}>
+              Fill out the form below to create an appointment. This will be saved to Supabase.
+            </p>
+            <AppointmentForm onAppointmentCreated={fetchAppointments} />
+          </div>
+        )}
         {activeTab === 'search' && (
           <div className="search-section">
             <h2>Find a Clinic</h2>

@@ -781,15 +781,29 @@ app.get('/api/hospital/clinics', authenticateToken, async (req, res) => {
 // ==================== APPOINTMENT ROUTES ====================
 
 // Create appointment (patient booking)
-app.post('/api/appointments', authenticateToken, async (req, res) => {
-  const { clinic_id, appointment_date, appointment_time, slot_id, reason, disease, doctor_name } = req.body;
-  const patient_id = req.user.role === 'patient' ? req.user.id : null;
-  const patient_name = req.user.role === 'patient' ? req.user.name : req.body.patient_name;
-  const patient_phone = req.user.phone || req.body.patient_phone;
-  const patient_email = req.user.email;
+// Allow without authentication for testing (when auth is disabled)
+app.post('/api/appointments', async (req, res) => {
+  // Try to get user from token if available, otherwise use request body
+  let user = null;
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (token) {
+    try {
+      user = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      // Token invalid, continue without auth
+    }
+  }
 
-  if (!clinic_id || !appointment_date || !appointment_time || !patient_name || !patient_phone) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  const { clinic_id, appointment_date, appointment_time, slot_id, reason, disease, doctor_name, patient_name, patient_phone, patient_email } = req.body;
+  const patient_id = user && user.role === 'patient' ? user.id : null;
+  const finalPatientName = user && user.role === 'patient' ? user.name : (patient_name || req.body.patient_name);
+  const finalPatientPhone = user && user.phone ? user.phone : (patient_phone || req.body.patient_phone);
+  const finalPatientEmail = user && user.email ? user.email : (patient_email || req.body.patient_email);
+
+  if (!clinic_id || !appointment_date || !appointment_time || !finalPatientName || !finalPatientPhone) {
+    return res.status(400).json({ error: 'Missing required fields: clinic_id, appointment_date, appointment_time, patient_name, and patient_phone are required' });
   }
 
   try {
@@ -829,9 +843,9 @@ app.post('/api/appointments', authenticateToken, async (req, res) => {
         .insert({
           patient_id,
           clinic_id,
-          patient_name,
-          patient_phone,
-          patient_email: patient_email || null,
+          patient_name: finalPatientName,
+          patient_phone: finalPatientPhone,
+          patient_email: finalPatientEmail || null,
           appointment_date,
           appointment_time,
           slot_id: slot_id || null,

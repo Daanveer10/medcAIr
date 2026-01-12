@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './AppointmentForm.css';
 import axios from 'axios';
 import { format } from 'date-fns';
@@ -6,15 +6,38 @@ import { API_URL } from '../config/api';
 
 const AppointmentForm = ({ onAppointmentCreated }) => {
   const [formData, setFormData] = useState({
+    clinic_id: '',
     patient_name: '',
     patient_phone: '',
     appointment_date: format(new Date(), 'yyyy-MM-dd'),
     appointment_time: '09:00',
     reason: '',
+    disease: '',
     doctor_name: 'Dr. Smith'
   });
+  const [clinics, setClinics] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingClinics, setLoadingClinics] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  // Fetch clinics on component mount
+  useEffect(() => {
+    const fetchClinics = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/clinics`);
+        setClinics(response.data || []);
+      } catch (error) {
+        console.error('Error fetching clinics:', error);
+        setMessage({ 
+          type: 'error', 
+          text: 'Could not load clinics. You can still enter a clinic ID manually.' 
+        });
+      } finally {
+        setLoadingClinics(false);
+      }
+    };
+    fetchClinics();
+  }, []);
 
   const handleChange = (e) => {
     setFormData({
@@ -31,13 +54,15 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
 
     try {
       await axios.post(`${API_URL}/appointments`, formData);
-      setMessage({ type: 'success', text: 'Appointment created successfully!' });
+      setMessage({ type: 'success', text: 'Appointment created successfully! Data saved to Supabase.' });
       setFormData({
+        clinic_id: '',
         patient_name: '',
         patient_phone: '',
         appointment_date: format(new Date(), 'yyyy-MM-dd'),
         appointment_time: '09:00',
         reason: '',
+        disease: '',
         doctor_name: 'Dr. Smith'
       });
       onAppointmentCreated();
@@ -71,6 +96,43 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
         )}
 
         <form onSubmit={handleSubmit} className="appointment-form">
+          <div className="form-group">
+            <label htmlFor="clinic_id">Select Clinic *</label>
+            {loadingClinics ? (
+              <div>Loading clinics...</div>
+            ) : clinics.length > 0 ? (
+              <select
+                id="clinic_id"
+                name="clinic_id"
+                value={formData.clinic_id}
+                onChange={handleChange}
+                required
+              >
+                <option value="">-- Select a Clinic --</option>
+                {clinics.map((clinic) => (
+                  <option key={clinic.id} value={clinic.id}>
+                    {clinic.name} - {clinic.city}, {clinic.state}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  id="clinic_id"
+                  name="clinic_id"
+                  value={formData.clinic_id}
+                  onChange={handleChange}
+                  required
+                  placeholder="Enter clinic ID (UUID)"
+                />
+                <small style={{ color: '#666', fontSize: '12px' }}>
+                  No clinics found. Enter a clinic ID manually (UUID format)
+                </small>
+              </>
+            )}
+          </div>
+
           <div className="form-group">
             <label htmlFor="patient_name">Patient Name *</label>
             <input
@@ -149,6 +211,18 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
               onChange={handleChange}
               rows="3"
               placeholder="Enter reason for visit (optional)"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="disease">Disease/Condition (Optional)</label>
+            <input
+              type="text"
+              id="disease"
+              name="disease"
+              value={formData.disease}
+              onChange={handleChange}
+              placeholder="e.g., Diabetes, Flu, Heart Disease"
             />
           </div>
 
