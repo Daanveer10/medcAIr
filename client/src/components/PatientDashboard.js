@@ -21,11 +21,14 @@ const PatientDashboard = ({ user, onLogout }) => {
       setLoading(true);
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_URL}/patient/appointments`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        timeout: 15000
       });
-      setAppointments(response.data);
+      setAppointments(response.data || []);
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      // Set empty array on error to prevent crashes
+      setAppointments([]);
     } finally {
       setLoading(false);
     }

@@ -24,13 +24,19 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
   useEffect(() => {
     const fetchClinics = async () => {
       try {
-        const response = await axios.get(`${API_URL}/clinics`);
+        const response = await axios.get(`${API_URL}/clinics`, {
+          timeout: 15000
+        });
         setClinics(response.data || []);
       } catch (error) {
         console.error('Error fetching clinics:', error);
+        // Extract error message safely (never pass object to setMessage)
+        const errorText = error.response?.data?.error || 
+                         error.message || 
+                         'Could not load clinics. You can still enter a clinic ID manually.';
         setMessage({ 
           type: 'error', 
-          text: 'Could not load clinics. You can still enter a clinic ID manually.' 
+          text: typeof errorText === 'string' ? errorText : 'Could not load clinics. You can still enter a clinic ID manually.'
         });
       } finally {
         setLoadingClinics(false);
@@ -72,9 +78,13 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
         setMessage({ type: '', text: '' });
       }, 3000);
     } catch (error) {
+      // Safely extract error message (always a string)
+      const errorText = error.response?.data?.error || 
+                       error.message || 
+                       'Failed to create appointment';
       setMessage({ 
         type: 'error', 
-        text: error.response?.data?.error || 'Failed to create appointment' 
+        text: typeof errorText === 'string' ? errorText : 'Failed to create appointment'
       });
     } finally {
       setLoading(false);
