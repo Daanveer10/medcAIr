@@ -25,7 +25,7 @@ const AppointmentForm = ({ onAppointmentCreated }) => {
     const fetchClinics = async () => {
       try {
         const response = await axios.get(`${API_URL}/clinics`, {
-          timeout: 15000
+          timeout: 8000
         });
         setClinics(response.data || []);
       } catch (error) {

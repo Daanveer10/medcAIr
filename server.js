@@ -7,8 +7,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const supabase = require('./db/supabase');
 
-// Timeout helper for Supabase queries (20 seconds default to account for cold starts)
-function withTimeout(promise, timeoutMs = 20000) {
+// Timeout helper for Supabase queries (5 seconds default for faster response)
+function withTimeout(promise, timeoutMs = 5000) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
@@ -18,7 +18,7 @@ function withTimeout(promise, timeoutMs = 20000) {
 }
 
 // Wrapper for Supabase queries with timeout and error handling
-async function safeSupabaseQuery(queryPromise, timeoutMs = 20000) {
+async function safeSupabaseQuery(queryPromise, timeoutMs = 5000) {
   try {
     const result = await withTimeout(queryPromise, timeoutMs);
     return result;
@@ -299,7 +299,7 @@ if (!isVercel) {
 // Register
 app.post('/api/auth/register', async (req, res) => {
   // Set response timeout to prevent hanging
-  res.setTimeout(55000); // 55 seconds (just under Vercel's 60s limit)
+  res.setTimeout(10000); // 10 seconds
 
   const { email, password, name, role, phone } = req.body;
 
@@ -416,7 +416,7 @@ app.post('/api/auth/login', async (req, res) => {
       .eq('email', email.toLowerCase().trim())
       .single();
 
-    const result = await safeSupabaseQuery(loginQuery, 20000);
+    const result = await safeSupabaseQuery(loginQuery, 8000);
     const { data: user, error } = result;
 
     if (error || !user) {
@@ -478,16 +478,16 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 
 // Get all clinics (for patients) - optimized for speed
 app.get('/api/clinics', async (req, res) => {
-  // Set response timeout
-  res.setTimeout(15000);
+  // Set response timeout (5 seconds)
+  res.setTimeout(5000);
   
   try {
     const { disease, city, search } = req.query;
     // Simplified query without join for faster response
     let query = supabase
       .from('clinics')
-      .select('*')
-      .limit(50); // Limit results for faster response
+      .select('id, name, address, city, state, phone, email, specialties, diseases_handled, operating_hours')
+      .limit(20); // Limit to 20 results for faster response
 
     if (disease) {
       query = query.ilike('diseases_handled', `%${disease}%`);
@@ -501,8 +501,8 @@ app.get('/api/clinics', async (req, res) => {
       query = query.or(`name.ilike.%${search}%,address.ilike.%${search}%,specialties.ilike.%${search}%`);
     }
 
-    // Use shorter timeout for clinics query (8 seconds)
-    const { data, error } = await safeSupabaseQuery(query, 8000);
+    // Use very short timeout for clinics query (5 seconds)
+    const { data, error } = await safeSupabaseQuery(query, 5000);
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -878,8 +878,8 @@ app.post('/api/appointments', async (req, res) => {
 
 // Get patient appointments - work without auth for testing
 app.get('/api/patient/appointments', async (req, res) => {
-  // Set response timeout
-  res.setTimeout(15000);
+  // Set response timeout (5 seconds)
+  res.setTimeout(5000);
   
   try {
     // Try to get user from token if available
@@ -898,36 +898,29 @@ app.get('/api/patient/appointments', async (req, res) => {
       }
     }
 
+    // Simplified query - select only needed fields, no join
     let query = supabase
       .from('appointments')
-      .select(`
-        *,
-        clinics(name, address)
-      `)
-      .limit(100); // Limit results for faster response
+      .select('id, patient_name, patient_phone, appointment_date, appointment_time, reason, disease, doctor_name, status, clinic_id')
+      .limit(50); // Limit to 50 results for faster response
 
     // If we have a user ID, filter by it, otherwise return all (for testing)
     if (userId) {
       query = query.eq('patient_id', userId);
     }
 
-    // Use shorter timeout (10 seconds)
+    // Use very short timeout (5 seconds)
     const { data, error } = await safeSupabaseQuery(
       query.order('appointment_date', { ascending: true }).order('appointment_time', { ascending: true }),
-      10000
+      5000
     );
 
     if (error) {
       return res.status(500).json({ error: error.message });
     }
 
-    const appointments = (data || []).map(apt => ({
-      ...apt,
-      clinic_name: apt.clinics?.name,
-      clinic_address: apt.clinics?.address
-    }));
-
-    res.json(appointments);
+    // Return appointments directly (without clinic join for speed)
+    res.json(data || []);
   } catch (error) {
     res.status(500).json({ error: error.message || 'Error fetching appointments' });
   }

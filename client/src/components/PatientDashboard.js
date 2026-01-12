@@ -22,7 +22,7 @@ const PatientDashboard = ({ user, onLogout }) => {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_URL}/patient/appointments`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
-        timeout: 15000
+        timeout: 8000
       });
       setAppointments(response.data || []);
     } catch (error) {
@@ -128,8 +128,8 @@ const PatientDashboard = ({ user, onLogout }) => {
                         </span>
                       </div>
                       <div className="appointment-body">
-                        <h3>{apt.clinic_name || 'Clinic'}</h3>
-                        <p className="appointment-address">{apt.clinic_address}</p>
+                        <h3>Clinic ID: {apt.clinic_id || 'N/A'}</h3>
+                        {apt.clinic_address && <p className="appointment-address">{apt.clinic_address}</p>}
                         {apt.reason && <p className="appointment-reason">📝 {apt.reason}</p>}
                         {apt.disease && <p className="appointment-disease">🦠 {apt.disease}</p>}
                         {apt.doctor_name && <p className="appointment-doctor">👨‍⚕️ {apt.doctor_name}</p>}
