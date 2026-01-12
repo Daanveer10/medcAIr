@@ -3,6 +3,12 @@
   "outputDirectory": "client/build",
   "installCommand": "npm install && cd client && npm install",
   "framework": null,
+  "functions": {
+    "api/server.js": {
+      "runtime": "nodejs18.x",
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",

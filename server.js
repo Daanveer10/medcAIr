@@ -5,7 +5,8 @@ const path = require('path');
 const { format, parseISO, addDays } = require('date-fns');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const supabase = require('./db/supabase');
+const getSupabase = require('./db/supabase');
+const supabase = getSupabase();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -226,9 +227,12 @@ async function initializeSampleData() {
   }
 }
 
-// Initialize on startup (only in non-Vercel mode)
+// Initialize on startup (only in non-Vercel mode, and don't block)
 if (process.env.VERCEL !== '1') {
-  initializeSampleData();
+  // Don't await - let it run in background
+  initializeSampleData().catch(err => {
+    console.error('Error initializing sample data:', err);
+  });
 }
 
 // ==================== AUTHENTICATION ROUTES ====================
