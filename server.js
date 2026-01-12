@@ -16,6 +16,20 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'client/build')));
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    supabase: {
+      configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+      url: process.env.SUPABASE_URL ? 'Set' : 'Not set'
+    },
+    jwt: {
+      configured: !!process.env.JWT_SECRET
+    }
+  });
+});
+
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
